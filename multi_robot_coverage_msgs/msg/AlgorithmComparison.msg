@@ -1,0 +1,11 @@
+std_msgs/Header header
+string  algorithm_a
+string  algorithm_b
+float32 coverage_a_percentage
+float32 coverage_b_percentage
+float32 time_a
+float32 time_b
+float32 overlap_a_percentage
+float32 overlap_b_percentage
+int32   robots_active_a
+int32   robots_active_b

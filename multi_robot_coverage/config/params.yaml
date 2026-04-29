@@ -1,0 +1,40 @@
+# Default parameters for multi_robot_coverage.
+# Override any value at launch time with argument syntax:
+#   ros2 launch multi_robot_coverage coverage_demo.launch.py num_robots:=4
+
+coverage_coordinator:
+  ros__parameters:
+    # ── Mission parameters ──────────────────────────────────────────────
+    num_robots: 3                 # 1–6 robots
+    algorithm: boustrophedon      # boustrophedon | frontier
+    map_name: simple_room         # simple_room | obstacle_room | warehouse
+
+    # ── Robot simulation ────────────────────────────────────────────────
+    robot_speed: 1.0              # metres per second (simulated)
+
+    # ── Failure simulation ──────────────────────────────────────────────
+    enable_failure_sim: false     # set true to kill one robot mid-mission
+    failure_time: 30.0            # seconds after start to trigger failure
+    failure_robot_id: -1          # -1 = pick a random active robot
+
+    # ── Algorithm tuning ────────────────────────────────────────────────
+    coverage_width_m: 0.40        # lawnmower strip spacing (robot diameter)
+    robot_radius_m: 0.20          # used for A* obstacle inflation
+
+map_server:
+  ros__parameters:
+    map_name: simple_room
+    # maps_dir is set by the launch file to the installed share directory
+
+visualizer:
+  ros__parameters:
+    num_robots: 3
+    map_frame: map
+    update_rate: 5.0              # Hz
+
+# Per-robot defaults (overridden per-node in the launch file)
+robot_agent:
+  ros__parameters:
+    robot_speed: 1.0
+    map_frame: map
+    update_rate: 20.0
