@@ -27,7 +27,7 @@ Published
 ROS2 Parameters
 ---------------
   num_robots         int    — number of robots (default 3)
-  algorithm          str    — "boustrophedon" | "frontier"
+  algorithm          str    — "boustrophedon" | "frontier" | "random_walk" | "simple_boustrophedon"
   map_name           str    — used only for display
   robot_speed        float  — forwarded to robot nodes
   enable_failure_sim bool   — randomly kill one robot mid-mission
@@ -63,6 +63,8 @@ from multi_robot_coverage.algorithms.boustrophedon import (
     CoverageCell,
 )
 from multi_robot_coverage.algorithms.frontier_based import FrontierExplorer
+from multi_robot_coverage.algorithms.random_walk import RandomWalkPlanner
+from multi_robot_coverage.algorithms.simple_boustrophedon import SimpleBoustrophedonPlanner
 
 
 class _State(Enum):
@@ -143,6 +145,15 @@ class CoverageCoordinatorNode(Node):
                 )
             )
 
+        # Live control — dashboard can switch algorithm without restarting sim
+        self._sub_set_algorithm = self.create_subscription(
+            String, '/set_algorithm', self._cb_set_algorithm, 10
+        )
+        # Live failure injection from dashboard
+        self._sub_inject_failure = self.create_subscription(
+            String, '/inject_failure', self._cb_inject_failure, 10
+        )
+
         # ------------------------------------------------------------------
         # Publishers
         # ------------------------------------------------------------------
@@ -200,13 +211,27 @@ class CoverageCoordinatorNode(Node):
         rows = msg.info.height
         cols = msg.info.width
         arr = np.array(msg.data, dtype=np.int8).reshape(rows, cols)
+        # OccupancyGrid stores row 0 at the bottom of the world.
+        # Internally we use row 0 = top (to match _world_to_grid convention),
+        # so flip Y now and flip back only when re-publishing.
+        arr = np.flipud(arr)
         # Convert to simple 0/100 grid.
-        self._grid = np.where(arr > 50, 100, np.where(arr < 0, 0, arr)).astype(
+        raw_grid = np.where(arr > 50, 100, np.where(arr < 0, 0, arr)).astype(
             np.uint8
         )
         self._resolution = msg.info.resolution
+
+        # Inflate obstacles by robot radius so all planning (BCD, A*, lawnmower)
+        # automatically respects the robot footprint.  This is what makes paths
+        # truly collision-free regardless of which algorithm generates them.
+        inflation_cells = max(1, int(self._radius_m / self._resolution))
+        self._grid = self._inflate_obstacles(raw_grid, inflation_cells)
+        self._raw_grid = raw_grid   # kept for visualisation only
+
         self._coverage = np.zeros((rows, cols), dtype=np.uint8)
-        # Mark obstacles in coverage map.
+        # Mark inflated obstacles in coverage map (the safety buffer is
+        # intentionally rendered as obstacle — it tells the user where the
+        # robot literally cannot fit).
         self._coverage[self._grid >= 50] = _OBSTACLE
         self._total_free = int(np.sum(self._grid < 50))
         self._state = _State.PLANNING
@@ -251,6 +276,80 @@ class CoverageCoordinatorNode(Node):
             )
             self._state = _State.FAILURE
 
+    def _cb_inject_failure(self, msg: String) -> None:
+        """Dashboard-triggered failure injection.
+
+        Payload: empty string or "auto" picks a random active robot;
+        otherwise the integer robot ID to fail.
+        """
+        active = [
+            i for i in range(self._n)
+            if self._robot_statuses.get(i) == "active"
+            and i not in self._failed_robots
+        ]
+        if not active:
+            self.get_logger().warn("inject_failure: no active robots to fail")
+            return
+
+        target: int
+        payload = (msg.data or "").strip().lower()
+        if payload in ("", "auto"):
+            target = random.choice(active)
+        else:
+            try:
+                target = int(payload)
+            except ValueError:
+                self.get_logger().warn(f"inject_failure: bad payload '{payload}'")
+                return
+            if target not in active:
+                self.get_logger().warn(
+                    f"inject_failure: robot {target} not active"
+                )
+                return
+
+        self.get_logger().warn(f"💥 Injecting failure into robot {target}")
+        self._failure_triggered = True
+        b = Bool()
+        b.data = True
+        self._pub_fail[target].publish(b)
+
+    def _cb_set_algorithm(self, msg: String) -> None:
+        """Switch algorithm and replan without restarting the container."""
+        new_algo = msg.data.strip()
+        valid = {"boustrophedon", "frontier", "random_walk", "simple_boustrophedon"}
+        if new_algo not in valid:
+            self.get_logger().warn(f"Unknown algorithm '{new_algo}' — ignored")
+            return
+        if new_algo == self._algorithm and self._state not in (
+            _State.COMPLETE, _State.WAITING_FOR_MAP
+        ):
+            return   # already running this algorithm, nothing to do
+        self.get_logger().info(f"Switching algorithm: {self._algorithm} → {new_algo}")
+        self._algorithm = new_algo
+        self._reset_and_replan()
+
+    def _reset_and_replan(self) -> None:
+        """Reset coverage state and trigger a fresh planning cycle."""
+        if self._grid is None or self._grid_msg is None:
+            return
+        rows, cols = self._grid.shape
+        self._coverage = np.zeros((rows, cols), dtype=np.uint8)
+        self._coverage[self._grid >= 50] = _OBSTACLE
+        self._robot_remaining_cells = {}
+        self._failed_robots = set()
+        self._failure_triggered = False
+        self._start_time = None
+        self._robot_statuses = {i: "idle" for i in range(self._n)}
+        self._frontier_explorer = None
+        self._claimed_frontiers = set()
+        # Send empty paths to reset all robots to idle
+        for i in range(self._n):
+            empty = Path()
+            empty.header.stamp = self.get_clock().now().to_msg()
+            empty.header.frame_id = "map"
+            self._pub_waypoints[i].publish(empty)
+        self._state = _State.PLANNING
+
     # ------------------------------------------------------------------
     # Main tick
     # ------------------------------------------------------------------
@@ -281,6 +380,10 @@ class CoverageCoordinatorNode(Node):
 
         if self._algorithm == "boustrophedon":
             self._plan_boustrophedon()
+        elif self._algorithm == "random_walk":
+            self._plan_random_walk()
+        elif self._algorithm == "simple_boustrophedon":
+            self._plan_simple_boustrophedon()
         else:
             self._plan_frontier()
 
@@ -289,7 +392,8 @@ class CoverageCoordinatorNode(Node):
     def _plan_boustrophedon(self) -> None:
         assert self._grid is not None
         cw = max(1, int(self._cov_width_m / self._resolution))
-        inflation = max(1, int(self._radius_m / self._resolution))
+        # Grid is already inflated, so planner uses 0 here
+        inflation = 0
         decomposer = BoustrophedonDecomposer(
             coverage_width=cw, occupied_threshold=50
         )
@@ -308,6 +412,34 @@ class CoverageCoordinatorNode(Node):
                 robot_id, robot_cells, decomposer, planner, inflation
             )
             self._send_waypoints(robot_id, path_poses)
+
+    def _plan_random_walk(self) -> None:
+        """Baseline: each robot performs a biased random walk."""
+        assert self._grid is not None
+        starts = self._default_start_positions()
+        planner = RandomWalkPlanner(num_steps=10000, step_size=2, seed=42)
+        paths = planner.assign_to_robots(self._grid, self._n, starts)
+        for robot_id, grid_path in paths.items():
+            world_path = [self._grid_to_world(*p) for p in grid_path]
+            self._send_waypoints(robot_id, world_path)
+        self.get_logger().info("Random-walk paths generated")
+
+    def _plan_simple_boustrophedon(self) -> None:
+        """Comparison: naive lawnmower with no cellular decomposition."""
+        assert self._grid is not None
+        cw = max(1, int(self._cov_width_m / self._resolution))
+        inflation = 0   # grid is pre-inflated in _cb_map
+        planner = SimpleBoustrophedonPlanner(coverage_width=cw)
+        grid_paths = planner.generate_paths(self._grid, self._n)
+        astar = AStar()
+        for robot_id, grid_path in grid_paths.items():
+            # Densify: add A* transitions where gaps would cross obstacles
+            dense = self._densify_path(grid_path, astar, inflation_radius=0)
+            world_path = [self._grid_to_world(*p) for p in dense]
+            self._send_waypoints(robot_id, world_path)
+        self.get_logger().info(
+            f"Simple-boustrophedon paths generated ({self._n} robots)"
+        )
 
     def _plan_frontier(self) -> None:
         assert self._grid is not None
@@ -343,7 +475,6 @@ class CoverageCoordinatorNode(Node):
         world_path: list[tuple[float, float]] = []
         prev_grid: Optional[tuple[int, int]] = None
 
-        # Robot starts from a sensible default position.
         starts = self._default_start_positions()
         if robot_id < len(starts):
             prev_grid = starts[robot_id]
@@ -353,8 +484,8 @@ class CoverageCoordinatorNode(Node):
             if not sweep:
                 continue
 
-            # Navigate from last position to first sweep point via A*.
-            if prev_grid is not None and sweep:
+            # A* transit from last position to first sweep point.
+            if prev_grid is not None:
                 transit = planner.search(
                     self._grid, prev_grid, sweep[0], inflation_radius=inflation
                 )
@@ -362,11 +493,134 @@ class CoverageCoordinatorNode(Node):
                     for gpt in transit[1:]:
                         world_path.append(self._grid_to_world(*gpt))
 
-            for gpt in sweep:
+            # Densify lawnmower strip: fill gaps so the robot never
+            # interpolates across an obstacle.  Use inflation=0 here because
+            # the lawnmower waypoints are already confirmed free cells — full
+            # inflation would block the start/goal cells themselves.
+            dense_sweep = self._densify_path(sweep, planner, inflation_radius=0)
+            for gpt in dense_sweep:
                 world_path.append(self._grid_to_world(*gpt))
             prev_grid = sweep[-1] if sweep else prev_grid
 
         return world_path
+
+    def _densify_path(
+        self,
+        grid_path: list[tuple[int, int]],
+        planner: AStar,
+        inflation_radius: int = 0,
+    ) -> list[tuple[int, int]]:
+        """Ensure no two consecutive waypoints linearly cross an obstacle.
+
+        Two-stage guarantee:
+          1. **Gap bridging** — any pair > √2 cells apart is bridged with A*.
+             We always check distance from the *last accepted point* (not the
+             original neighbour), so dropping a waypoint can never silently
+             create a longer cross-obstacle jump on the next iteration.
+          2. **Bresenham validation** — every accepted segment is line-checked
+             against the obstacle grid; any segment that would graze an
+             obstacle is replaced with an A* detour.
+
+        Returns a path where every consecutive segment is provably free of
+        obstacles even under linear interpolation.
+        """
+        if self._grid is None or len(grid_path) < 2:
+            return list(grid_path)
+
+        # Stage 1: gap bridging (uses dense[-1] as prev — fixes chained-skip bug)
+        dense: list[tuple[int, int]] = [grid_path[0]]
+        for i in range(1, len(grid_path)):
+            curr = grid_path[i]
+            prev = dense[-1]
+            dist = math.hypot(curr[0] - prev[0], curr[1] - prev[1])
+
+            if dist > 1.5:
+                bridge = planner.search(
+                    self._grid, prev, curr, inflation_radius=inflation_radius
+                ) or planner.search(
+                    self._grid, prev, curr, inflation_radius=0
+                )
+                if bridge and len(bridge) > 1:
+                    dense.extend(bridge[1:])
+                # else: skip curr — next iteration will check from same prev
+            else:
+                dense.append(curr)
+
+        # Stage 2: line-of-sight validation
+        return self._validate_segments(dense, planner)
+
+    def _validate_segments(
+        self,
+        path: list[tuple[int, int]],
+        planner: AStar,
+    ) -> list[tuple[int, int]]:
+        """Replace any obstacle-crossing segment with an A* detour."""
+        if self._grid is None or len(path) < 2:
+            return path
+
+        validated: list[tuple[int, int]] = [path[0]]
+        for i in range(1, len(path)):
+            prev = validated[-1]
+            curr = path[i]
+            if self._segment_clear(prev, curr):
+                validated.append(curr)
+                continue
+            # Segment crosses an obstacle — try to find a detour
+            detour = planner.search(self._grid, prev, curr, inflation_radius=0)
+            if detour and len(detour) > 1:
+                validated.extend(detour[1:])
+            # else: drop this waypoint silently (no safe path possible)
+        return validated
+
+    def _segment_clear(
+        self,
+        a: tuple[int, int],
+        b: tuple[int, int],
+    ) -> bool:
+        """Bresenham line check — returns True iff every cell on the segment
+        from *a* to *b* is non-obstacle in self._grid."""
+        if self._grid is None:
+            return True
+        r0, c0 = a
+        r1, c1 = b
+        dr = abs(r1 - r0)
+        dc = abs(c1 - c0)
+        sr = 1 if r0 < r1 else -1
+        sc = 1 if c0 < c1 else -1
+        err = dr - dc
+        rows, cols = self._grid.shape
+        r, c = r0, c0
+        while True:
+            if not (0 <= r < rows and 0 <= c < cols):
+                return False
+            if self._grid[r, c] >= 50:
+                return False
+            if (r, c) == (r1, c1):
+                return True
+            e2 = 2 * err
+            if e2 > -dc:
+                err -= dc
+                r += sr
+            if e2 < dr:
+                err += dr
+                c += sc
+
+    @staticmethod
+    def _inflate_obstacles(grid: np.ndarray, radius: int) -> np.ndarray:
+        """Dilate obstacles by *radius* cells using a square structuring element."""
+        if radius <= 0:
+            return grid.copy()
+        try:
+            from scipy.ndimage import binary_dilation
+
+            mask = grid >= 50
+            struct = np.ones((2 * radius + 1, 2 * radius + 1), dtype=bool)
+            inflated = binary_dilation(mask, structure=struct)
+            out = grid.copy()
+            out[inflated] = 100
+            return out
+        except ImportError:
+            return grid.copy()
 
     # ------------------------------------------------------------------
     # Frontier-specific tick (called every timer tick while running)
@@ -394,7 +648,7 @@ class CoverageCoordinatorNode(Node):
             if self._robot_statuses.get(robot_id) in ("active",):
                 continue  # robot still working on previous goal
             planner = AStar()
-            inflation = max(1, int(self._radius_m / self._resolution))
+            inflation = 0   # grid is pre-inflated in _cb_map
             current_grid = self._world_to_grid(
                 *self._robot_poses.get(robot_id, (0.0, 0.0))
             )
@@ -494,7 +748,7 @@ class CoverageCoordinatorNode(Node):
             )
 
             planner = AStar()
-            inflation = max(1, int(self._radius_m / self._resolution))
+            inflation = 0   # grid is pre-inflated in _cb_map
             for robot_id, cells in self._robot_remaining_cells.items():
                 if robot_id == failed_id:
                     continue
@@ -539,8 +793,9 @@ class CoverageCoordinatorNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
         msg.info = self._grid_msg.info
-        # Normalise robot stamps to 0-100 range for RViz colour mapping.
-        display = self._coverage.copy().astype(np.int8)
+        # Flip Y back to OccupancyGrid convention (row 0 = bottom) before
+        # publishing, since internally we store row 0 = top.
+        display = np.flipud(self._coverage.copy()).astype(np.int8)
         msg.data = display.flatten().tolist()
         self._pub_cov_map.publish(msg)
 
@@ -610,20 +865,52 @@ class CoverageCoordinatorNode(Node):
         return (x, y)
 
     def _default_start_positions(self) -> list[tuple[int, int]]:
-        """Evenly-spaced start positions near the bottom of the free space."""
+        """Evenly-spread start positions in safe (free, non-inflated) cells.
+
+        Distributes robots across both X and Y so the workload is naturally
+        balanced and they don't all crowd the same corner.  Snaps each
+        candidate to the nearest free cell of the inflated grid.
+        """
         if self._grid is None:
             return [(5, 5)] * self._n
         rows, cols = self._grid.shape
-        free_cols = [
-            c
-            for c in range(5, cols - 5, max(1, cols // (self._n + 1)))
-            if self._grid[rows - 10, c] < 50
-        ]
-        positions = []
+
+        # Anchor row near the bottom of the workspace, but pulled up a bit
+        # so we're definitely inside the free zone.
+        anchor_row = int(rows * 0.85)
+        positions: list[tuple[int, int]] = []
         for i in range(self._n):
-            c = free_cols[i % len(free_cols)] if free_cols else cols // 2
-            positions.append((rows - 10, c))
+            # Spread columns evenly across the map width
+            target_col = int((i + 1) * cols / (self._n + 1))
+            pos = self._snap_to_free(anchor_row, target_col)
+            positions.append(pos)
         return positions
+
+    def _snap_to_free(self, row: int, col: int) -> tuple[int, int]:
+        """Find the nearest non-obstacle cell to *(row, col)* via BFS."""
+        assert self._grid is not None
+        rows, cols = self._grid.shape
+        row = max(0, min(rows - 1, row))
+        col = max(0, min(cols - 1, col))
+        if self._grid[row, col] < 50:
+            return (row, col)
+
+        from collections import deque
+        visited = {(row, col)}
+        q = deque([(row, col)])
+        while q:
+            r, c = q.popleft()
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if not (0 <= nr < rows and 0 <= nc < cols):
+                    continue
+                if (nr, nc) in visited:
+                    continue
+                visited.add((nr, nc))
+                if self._grid[nr, nc] < 50:
+                    return (nr, nc)
+                q.append((nr, nc))
+        return (row, col)   # fallback (shouldn't happen on a sane map)
 
 
 def main(args: list[str] | None = None) -> None:

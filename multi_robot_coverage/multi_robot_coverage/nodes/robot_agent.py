@@ -38,7 +38,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from geometry_msgs.msg import PoseStamped, Quaternion
 from nav_msgs.msg import Path
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Float64, String
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
 
@@ -103,6 +103,10 @@ class RobotAgentNode(Node):
             self._cb_fail,
             10,
         )
+        # Live speed control from dashboard
+        self._sub_speed = self.create_subscription(
+            Float64, '/set_speed', self._cb_set_speed, 10
+        )
 
         # TF broadcaster for RViz visualisation.
         self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -129,6 +133,13 @@ class RobotAgentNode(Node):
         """Receive a new waypoint path and start executing it."""
         if self._status == self._STATUS_FAILED:
             return
+        # Empty path = reset signal (algorithm switch)
+        if not msg.poses:
+            self._waypoints = []
+            self._wp_index = 0
+            self._status = self._STATUS_IDLE
+            self._publish_status()
+            return
         self._waypoints = list(msg.poses)
         self._wp_index = 0
         if self._waypoints:
@@ -149,6 +160,11 @@ class RobotAgentNode(Node):
             self._status = self._STATUS_FAILED
             self._publish_status()
             self.get_logger().warn(f"Robot {self._robot_id}: FAILED (simulated)")
+
+    def _cb_set_speed(self, msg: Float64) -> None:
+        """Update robot speed live from the dashboard."""
+        new_speed = max(0.1, min(10.0, float(msg.data)))
+        self._speed = new_speed
 
     # ------------------------------------------------------------------
     # Control loop
