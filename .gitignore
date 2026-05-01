@@ -30,3 +30,6 @@ htmlcov/
 
 # Colcon
 colcon_build.rc
+
+# Docker
+.docker/

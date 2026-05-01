@@ -1,0 +1,65 @@
+services:
+
+  # ── Main simulation container ───────────────────────────────────────────────
+  coverage_sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: workspace
+    image: multi_robot_coverage:humble
+
+    environment:
+      # Display forwarding — value is set by the Makefile (Linux vs Mac differs)
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1        # prevents RViz2 shared-memory crash
+      - ROS_DOMAIN_ID=42           # isolates DDS traffic from other ROS2 systems
+
+    volumes:
+      # Live source mount — edit on Mac, changes reflect immediately (symlink-install)
+      - ./multi_robot_coverage:/coverage_ws/src/multi_robot_coverage
+      - ./multi_robot_coverage_msgs:/coverage_ws/src/multi_robot_coverage_msgs
+      # Persist build artifacts so rebuilds are fast
+      - coverage_build:/coverage_ws/build
+      - coverage_install:/coverage_ws/install
+      - coverage_log:/coverage_ws/log
+      # X11 socket (Linux only — Mac uses TCP, handled by Makefile)
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+    # host networking lets all ROS2 nodes share DDS without any port mapping
+    network_mode: host
+
+    stdin_open: true
+    tty: true
+
+    command: >
+      ros2 launch multi_robot_coverage coverage_demo.launch.py
+        num_robots:=${NUM_ROBOTS:-3}
+        algorithm:=${ALGORITHM:-boustrophedon}
+        map:=${MAP:-obstacle_room}
+        robot_speed:=${ROBOT_SPEED:-1.0}
+        enable_failure_sim:=${ENABLE_FAILURE:-false}
+        failure_time:=${FAILURE_TIME:-30.0}
+
+  # ── Test runner (no display needed) ────────────────────────────────────────
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps          # lighter — no workspace build needed for unit tests
+    image: multi_robot_coverage:test
+
+    volumes:
+      - ./multi_robot_coverage:/coverage_ws/src/multi_robot_coverage
+
+    working_dir: /coverage_ws/src/multi_robot_coverage
+
+    command: >
+      bash -c "pip install pytest pytest-cov --quiet &&
+               pytest test/ -v --tb=short"
+
+    profiles: ["test"]      # only starts when `docker compose --profile test up`
+
+volumes:
+  coverage_build:
+  coverage_install:
+  coverage_log:

@@ -83,41 +83,54 @@ A vertical sweep-line traverses the grid. Each time free-space connectivity chan
 
 ## Quick Start
 
-**Requires:** Ubuntu 22.04 · ROS2 Humble · Python 3.10+
+### Option A — Docker (recommended, works on Mac/Windows/Linux)
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) · [XQuartz](https://www.xquartz.org/) (Mac only, for RViz2 display)
 
 ```bash
-# Clone
+git clone git@github.com:Shadysiam/multi-robot-coverage.git
+cd multi-robot-coverage
+
+make build   # build the image (~3 min, once only)
+make sim     # launches full simulation + RViz2
+```
+
+Common scenarios:
+
+```bash
+# 4 robots in the warehouse
+make sim-args ARGS="num_robots:=4 map:=warehouse algorithm:=boustrophedon"
+
+# Kill robot 1 at t=20s — watch reallocation live
+make sim-args ARGS="num_robots:=3 map:=warehouse enable_failure_sim:=true failure_time:=20.0"
+
+# Frontier-based for comparison
+make sim-args ARGS="num_robots:=3 map:=obstacle_room algorithm:=frontier"
+
+# Run tests inside Docker
+make test
+
+# Open a shell inside the container
+make shell
+```
+
+> **Mac setup (one-time):** Install XQuartz, open it, go to
+> Preferences → Security → tick *Allow connections from network clients*, then reboot.
+
+---
+
+### Option B — Native ROS2 (Ubuntu 22.04)
+
+```bash
 mkdir -p ~/coverage_ws/src && cd ~/coverage_ws/src
 git clone git@github.com:Shadysiam/multi-robot-coverage.git .
-
-# Install Python deps & build
 pip3 install -r multi_robot_coverage/requirements.txt
 cd ~/coverage_ws && source /opt/ros/humble/setup.bash
 colcon build --symlink-install && source install/setup.bash
-
-# Run (opens RViz2 automatically)
-ros2 launch multi_robot_coverage coverage_demo.launch.py \
-    num_robots:=3 algorithm:=boustrophedon map:=obstacle_room
+ros2 launch multi_robot_coverage coverage_demo.launch.py
 ```
 
-### Other scenarios
-
-```bash
-# Warehouse sweep with 4 robots
-ros2 launch multi_robot_coverage coverage_demo.launch.py \
-    num_robots:=4 map:=warehouse algorithm:=boustrophedon
-
-# Kill robot 1 at t=20s and watch reallocation
-ros2 launch multi_robot_coverage coverage_demo.launch.py \
-    num_robots:=3 map:=warehouse \
-    enable_failure_sim:=true failure_time:=20.0 failure_robot_id:=1
-
-# Frontier-based for comparison
-ros2 launch multi_robot_coverage coverage_demo.launch.py \
-    num_robots:=3 map:=obstacle_room algorithm:=frontier
-```
-
-### Unit tests (no ROS2 needed)
+### Unit tests (no ROS2 or Docker needed)
 
 ```bash
 cd multi_robot_coverage && pip install pytest numpy scipy

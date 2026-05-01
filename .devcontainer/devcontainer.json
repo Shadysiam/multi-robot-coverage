@@ -1,0 +1,33 @@
+{
+  "name": "multi_robot_coverage · ROS2 Humble",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "coverage_sim",
+  "workspaceFolder": "/coverage_ws/src",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance",
+        "ms-iot.vscode-ros",
+        "redhat.vscode-yaml",
+        "eamodio.gitlens",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.analysis.extraPaths": [
+          "/opt/ros/humble/lib/python3.10/site-packages",
+          "/coverage_ws/install/multi_robot_coverage/lib/python3.10/site-packages"
+        ],
+        "ros.distro": "humble"
+      }
+    }
+  },
+
+  "postCreateCommand": "cd /coverage_ws && colcon build --symlink-install && source install/setup.bash && ros2 run multi_robot_coverage generate_maps",
+
+  "remoteEnv": {
+    "ROS_DOMAIN_ID": "42"
+  }
+}
