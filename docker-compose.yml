@@ -1,6 +1,6 @@
 services:
 
-  # ── Main simulation container ───────────────────────────────────────────────
+  # ── ROS2 simulation + rosbridge ────────────────────────────────────────────
   coverage_sim:
     build:
       context: .
@@ -9,24 +9,23 @@ services:
     image: multi_robot_coverage:humble
 
     environment:
-      # Display forwarding — value is set by the Makefile (Linux vs Mac differs)
-      - DISPLAY=${DISPLAY}
-      - QT_X11_NO_MITSHM=1        # prevents RViz2 shared-memory crash
-      - ROS_DOMAIN_ID=42           # isolates DDS traffic from other ROS2 systems
+      - DISPLAY=:99
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=42
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - GALLIUM_DRIVER=llvmpipe
+      - MESA_GL_VERSION_OVERRIDE=3.3
+
+    ports:
+      - "6080:6080"     # noVNC (RViz2 in browser)
+      - "9090:9090"     # rosbridge WebSocket → web dashboard
 
     volumes:
-      # Live source mount — edit on Mac, changes reflect immediately (symlink-install)
       - ./multi_robot_coverage:/coverage_ws/src/multi_robot_coverage
       - ./multi_robot_coverage_msgs:/coverage_ws/src/multi_robot_coverage_msgs
-      # Persist build artifacts so rebuilds are fast
       - coverage_build:/coverage_ws/build
       - coverage_install:/coverage_ws/install
       - coverage_log:/coverage_ws/log
-      # X11 socket (Linux only — Mac uses TCP, handled by Makefile)
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-
-    # host networking lets all ROS2 nodes share DDS without any port mapping
-    network_mode: host
 
     stdin_open: true
     tty: true
@@ -39,27 +38,40 @@ services:
         robot_speed:=${ROBOT_SPEED:-1.0}
         enable_failure_sim:=${ENABLE_FAILURE:-false}
         failure_time:=${FAILURE_TIME:-30.0}
+        use_rviz:=${USE_RVIZ:-false}
 
-  # ── Test runner (no display needed) ────────────────────────────────────────
+  # ── React web dashboard ────────────────────────────────────────────────────
+  dashboard:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./web_dashboard:/app
+      - dashboard_modules:/app/node_modules   # isolated from host
+    ports:
+      - "5173:5173"     # Vite dev server → open http://localhost:5173
+    environment:
+      - VITE_ROSBRIDGE_URL=ws://localhost:9090
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      - coverage_sim
+
+  # ── Test runner ────────────────────────────────────────────────────────────
   test:
     build:
       context: .
       dockerfile: Dockerfile
-      target: deps          # lighter — no workspace build needed for unit tests
+      target: deps
     image: multi_robot_coverage:test
-
     volumes:
       - ./multi_robot_coverage:/coverage_ws/src/multi_robot_coverage
-
     working_dir: /coverage_ws/src/multi_robot_coverage
-
     command: >
       bash -c "pip install pytest pytest-cov --quiet &&
                pytest test/ -v --tb=short"
-
-    profiles: ["test"]      # only starts when `docker compose --profile test up`
+    profiles: ["test"]
 
 volumes:
   coverage_build:
   coverage_install:
   coverage_log:
+  dashboard_modules:

@@ -165,6 +165,19 @@ def _launch_nodes(context, *args, **kwargs) -> list:
     )
 
     # ------------------------------------------------------------------
+    # rosbridge — exposes ROS2 topics over WebSocket for the web dashboard
+    # ------------------------------------------------------------------
+    nodes.append(
+        Node(
+            package="rosbridge_server",
+            executable="rosbridge_websocket",
+            name="rosbridge_websocket",
+            output="screen",
+            parameters=[{"port": 9090, "address": "0.0.0.0"}],
+        )
+    )
+
+    # ------------------------------------------------------------------
     # RViz2 (optional)
     # ------------------------------------------------------------------
     if use_rviz:

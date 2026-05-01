@@ -2,79 +2,63 @@
 # multi_robot_coverage — Docker helper targets
 #
 # Usage:
-#   make build            Build the Docker image
-#   make sim              Run the default simulation (RViz2 opens automatically)
-#   make sim ARGS="num_robots:=4 map:=warehouse algorithm:=boustrophedon"
-#   make test             Run all 47 unit tests inside Docker
-#   make shell            Open a bash shell inside the container
-#   make clean            Remove containers, volumes, and the built image
+#   make build     Build the ROS2 Docker image
+#   make sim       Run ROS2 sim (noVNC at http://localhost:6080/vnc.html)
+#   make web       Run ROS2 sim + React dashboard (http://localhost:5173)
+#   make test      Run all 47 unit tests
+#   make shell     Open a bash shell inside the ROS2 container
+#   make clean     Remove containers, volumes, and built image
 # ──────────────────────────────────────────────────────────────────────────────
 
 IMAGE   := multi_robot_coverage:humble
 COMPOSE := docker compose
 
-# ── Detect OS and set display forwarding ──────────────────────────────────────
+.PHONY: build sim web sim-args test shell rebuild clean help
 
-UNAME := $(shell uname)
-
-ifeq ($(UNAME), Darwin)
-  # macOS: XQuartz uses TCP on localhost
-  DISPLAY_ENV := DISPLAY=host.docker.internal:0
-  XHOST_CMD   := xhost + 127.0.0.1
-  X11_VOLUME  :=               # no /tmp/.X11-unix on Mac
-else
-  # Linux: use the Unix socket
-  DISPLAY_ENV := DISPLAY=$(DISPLAY)
-  XHOST_CMD   := xhost +local:docker
-  X11_VOLUME  := -v /tmp/.X11-unix:/tmp/.X11-unix
-endif
-
-# ── Targets ───────────────────────────────────────────────────────────────────
-
-.PHONY: build sim test shell clean help
-
-## Build the Docker image (only needed once, or after Dockerfile changes)
+## Build the ROS2 Docker image (~5 min first time)
 build:
 	$(COMPOSE) build coverage_sim
 
-## Run the full simulation with RViz2
-sim: _xhost
-	$(DISPLAY_ENV) $(COMPOSE) up coverage_sim
+## Run simulation only — RViz2 at http://localhost:6080/vnc.html
+sim:
+	@echo ""
+	@echo "  RViz2 (noVNC):     http://localhost:6080/vnc.html"
+	@echo "  rosbridge:         ws://localhost:9090"
+	@echo ""
+	$(COMPOSE) up coverage_sim
 
-## Run with extra launch args, e.g.:
+## Run simulation + React web dashboard — open http://localhost:5173
+web:
+	@echo ""
+	@echo "  Web dashboard:     http://localhost:5173"
+	@echo "  RViz2 (noVNC):     http://localhost:6080/vnc.html"
+	@echo ""
+	$(COMPOSE) up coverage_sim dashboard
+
+## Run with custom launch args, e.g.:
 ##   make sim-args ARGS="num_robots:=4 map:=warehouse enable_failure_sim:=true"
-sim-args: _xhost
-	$(DISPLAY_ENV) $(COMPOSE) run --rm coverage_sim \
+sim-args:
+	$(COMPOSE) run --rm --service-ports coverage_sim \
 		ros2 launch multi_robot_coverage coverage_demo.launch.py $(ARGS)
 
-## Run all unit tests (no display needed)
+## Run all 47 unit tests (no display needed)
 test:
 	$(COMPOSE) --profile test up --abort-on-container-exit test
 
-## Open an interactive shell inside the container
-shell: _xhost
-	$(DISPLAY_ENV) $(COMPOSE) run --rm coverage_sim bash
+## Open an interactive bash shell inside the ROS2 container
+shell:
+	$(COMPOSE) run --rm coverage_sim bash
 
-## Rebuild the workspace inside a running container (after changing package.xml / CMakeLists)
+## Rebuild the colcon workspace (needed after changing package.xml / CMakeLists)
 rebuild:
 	$(COMPOSE) run --rm coverage_sim bash -c \
 		"cd /coverage_ws && colcon build --symlink-install"
 
-## Stop all containers and remove volumes (fresh start)
+## Remove all containers and volumes for a clean slate
 clean:
 	$(COMPOSE) down -v
 	docker rmi $(IMAGE) 2>/dev/null || true
 
-## Print this help
+## Print available targets
 help:
-	@grep -E '^##' Makefile | sed 's/^## //'
-
-# ── Internal ──────────────────────────────────────────────────────────────────
-
-_xhost:
-ifeq ($(UNAME), Darwin)
-	@echo "[make] Granting XQuartz access — you may see an 'xhost' warning, that is normal."
-	@xhost + 127.0.0.1 2>/dev/null || echo "[make] XQuartz not running — open XQuartz.app first."
-else
-	@$(XHOST_CMD) 2>/dev/null || true
-endif
+	@grep -E '^##' Makefile | sed 's/^## /  /'

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #0b0f1a;
+  color: #e2e8f0;
+  font-family: 'Inter', sans-serif;
+  overflow: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #1f2937; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+
+/* Canvas crisp pixels */
+canvas { image-rendering: pixelated; }
+
+/* Glow effects */
+.glow-blue  { box-shadow: 0 0 20px rgba(59,130,246,0.15); }
+.glow-green { box-shadow: 0 0 20px rgba(34,197,94,0.15); }
+
+/* Stat card */
+.stat-card {
+  @apply bg-surface-800 border border-surface-600 rounded-xl p-4;
+}
+
+/* Badge */
+.badge {
+  @apply text-xs font-mono font-semibold px-2 py-0.5 rounded-full;
+}
