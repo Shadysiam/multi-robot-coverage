@@ -1,338 +1,159 @@
-# multi_robot_coverage
+# 🤖 Multi-Robot Coverage Path Planning · ROS2 Humble
 
-> **Multi-robot coverage path planning in ROS2 Humble** — implements and
-> visually compares Boustrophedon Cellular Decomposition and frontier-based
-> exploration with real-time RViz2 visualisation, configurable robot counts,
-> and live failure-reallocation.
+[![CI](https://github.com/Shadysiam/multi-robot-coverage/actions/workflows/ci.yml/badge.svg)](https://github.com/Shadysiam/multi-robot-coverage/actions/workflows/ci.yml)
+![ROS2](https://img.shields.io/badge/ROS2-Humble-22314E?logo=ros&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-22c55e)
 
-![ROS2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)
-![Python 3.10](https://img.shields.io/badge/Python-3.10-blue)
-![License MIT](https://img.shields.io/badge/License-MIT-green)
+> A from-scratch multi-robot coverage simulator in ROS2 — comparing a
+> **Boustrophedon Cellular Decomposition** planner against **frontier-based
+> exploration**, with live RViz2 visualisation and mid-mission fault recovery.
 
 ---
 
 ## Demo
 
-<!-- [DEMO GIF HERE] -->
-> *Run the warehouse scenario with 4 robots and failure simulation, then drop
-> a GIF of the RViz2 session here.*
+<!-- Replace the rows below with your actual GIFs/screenshots after running the sim -->
+
+| Boustrophedon · 3 robots · obstacle room | Failure injection & reallocation |
+|:---:|:---:|
+| *(screenshot coming)* | *(screenshot coming)* |
+
+| Frontier-based · 3 robots | Algorithm comparison view |
+|:---:|:---:|
+| *(screenshot coming)* | *(screenshot coming)* |
 
 ---
 
-## Motivation
+## What This Project Demonstrates
 
-Coverage path planning (CPP) is a prerequisite for any autonomous mobile
-robot that must systematically visit every reachable point in an environment —
-floor-cleaning robots, agricultural drones, warehouse inspection AMRs, and
-search-and-rescue platforms all rely on it.
+This isn't a tutorial project — every component was designed and implemented from scratch:
 
-This project implements **Boustrophedon Cellular Decomposition (BCD)**, the
-canonical deterministic CPP algorithm, alongside a **frontier-based**
-exploration baseline.  The failure-reallocation logic follows the
-propagation-based strategy described in:
-
-> Gong, X., *et al.* (2024). Multi-Robot Coverage Path Planning Based on
-> Boustrophedon Cellular Decomposition with Propagation-Based Task
-> Reallocation. *Sensors*, 24(23), 7482.
-> <https://doi.org/10.3390/s24237482>
+- **Coverage path planning** — full Boustrophedon Cellular Decomposition: sweep-line map decomposition into convex cells, lawnmower path generation per cell, greedy area-balanced robot assignment
+- **Reactive exploration** — frontier-based algorithm with BFS cluster detection and a coordination layer that prevents multiple robots targeting the same goal
+- **A\* planner** — 8-connected grid search with Euclidean heuristic, corner-clipping prevention, and configurable obstacle inflation for robot footprint
+- **Fault tolerance** — simulate a robot dying mid-mission; remaining tasks propagate to active neighbours using the strategy from [Gong et al. 2024](https://doi.org/10.3390/s24237482)
+- **ROS2 systems design** — custom message packages, transient-local QoS, TF2 broadcasting, OpaqueFunction launch files, fully parameterised with zero hardcoded values
+- **Testing** — 47 unit tests on pure-Python algorithm modules (no ROS2 needed), GitHub Actions CI across Python 3.10 and 3.11
 
 ---
 
-## Architecture
+## How It Works
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  ROS2 Nodes                                                       │
-│                                                                   │
-│  ┌──────────────┐  /map (OccupancyGrid, transient-local)         │
-│  │  map_server  │──────────────────────────────┐                 │
-│  └──────────────┘                              ▼                 │
-│                                  ┌─────────────────────────┐    │
-│                                  │  coverage_coordinator   │    │
-│  Algorithms (pure Python)        │  ┌─────────────────┐    │    │
-│  ┌──────────────────────────┐    │  │  BCD decomposer │    │    │
-│  │  BoustrophedonDecomposer │◄───┤  │  A* planner     │    │    │
-│  │  AStar                   │    │  │  FrontierExplor │    │    │
-│  │  FrontierExplorer        │    │  └─────────────────┘    │    │
-│  └──────────────────────────┘    └──────┬──────────────────┘    │
-│                                         │ /robot_N/waypoints     │
-│  ┌──────────────────────────────────────┼──────────────────┐    │
-│  │  robot_agent_0   robot_agent_1  …    │  robot_agent_N   │    │
-│  │      ▲  publishes /robot_N/pose      │                  │    │
-│  └──────┼───────────────────────────────┘                  │    │
-│         │                                                         │
-│  ┌──────┴──────┐                                                  │
-│  │  visualizer │──► /visualization_marker_array ──► RViz2        │
-│  └─────────────┘                                                  │
-└──────────────────────────────────────────────────────────────────┘
+map_server  ──/map──►  coverage_coordinator  ──/robot_N/waypoints──►  robot_agent × N
+                              │ runs:                                        │
+                              │  · BoustrophedonDecomposer                  │ publishes
+                              │  · AStar                          /robot_N/pose, /status
+                              │  · FrontierExplorer                         │
+                              └──────────────────────────────────►  visualizer ──► RViz2
 ```
 
-### Topic graph
+The planner lives in **pure Python with no ROS2 dependency** — it can be unit-tested, benchmarked, or ported to C++ without touching the node layer. The coordinator subscribes to robot poses, tracks coverage in real time, and handles reallocation when a failure is detected.
 
-| Topic | Type | Publisher | Subscribers |
-|---|---|---|---|
-| `/map` | `OccupancyGrid` | map_server | coordinator |
-| `/robot_{id}/waypoints` | `Path` | coordinator | robot_agent |
-| `/robot_{id}/pose` | `PoseStamped` | robot_agent | coordinator, visualizer |
-| `/robot_{id}/path` | `Path` | robot_agent | visualizer |
-| `/robot_{id}/status` | `String` | robot_agent | coordinator, visualizer |
-| `/robot_{id}/fail_trigger` | `Bool` | coordinator | robot_agent |
-| `/coverage_map` | `OccupancyGrid` | coordinator | visualizer, RViz2 |
-| `/coverage_stats` | `CoverageStats` | coordinator | visualizer |
-| `/algorithm_comparison` | `AlgorithmComparison` | coordinator | — |
-| `/visualization_marker_array` | `MarkerArray` | visualizer | RViz2 |
+### Boustrophedon Cellular Decomposition
+
+A vertical sweep-line traverses the grid. Each time free-space connectivity changes — an obstacle appearing, disappearing, splitting, or merging a free interval — a **critical event** fires and a cell boundary is drawn. The resulting cells tile the free space exactly, with zero overlap. Each cell is then covered by a back-and-forth lawnmower sweep.
+
+```
+ Free space          BCD cells          Per-cell paths
+ ┌─────────┐        ┌──┬────┬──┐        →→→→  ←←←←←
+ │  ██ ██  │  ──►   │A │ B  │C │  ──►   ←←←  →→→→→→
+ │         │        │  └────┘  │        →→→→  ←←←←←
+ └─────────┘        └──────────┘
+```
 
 ---
 
-## Algorithms
+## Results
 
-### 1 · Boustrophedon Cellular Decomposition
-
-BCD sweeps a vertical line across the occupancy grid.  At each column it
-records the set of *free row-intervals* (slices).  When the interval
-connectivity changes between adjacent columns, a **critical event** occurs:
-
-| Event | Trigger | Action |
-|---|---|---|
-| **IN** | New slice appears | Start a new cell |
-| **OUT** | Slice disappears | Close the cell |
-| **CONTINUE** | One-to-one match | Extend current cell |
-| **SPLIT** | One → many | Close old cell; start two new ones |
-| **MERGE** | Many → one | Close both; start one new cell |
-
-Each resulting cell is swept with a back-and-forth **lawnmower** pattern at
-`coverage_width` spacing.  Inter-cell navigation uses **A\*** with obstacle
-inflation equal to the robot radius.
-
-Cells are distributed among N robots by **greedy area-balancing**: sort cells
-by area (largest first), assign each to the robot with the smallest current
-workload.
-
-```
-Free space          BCD cells              Lawnmower paths
-┌──────────┐       ┌──┬───┬────┐          ┌──────────────┐
-│          │       │A │ B │ C  │          │→→→→  ←←←←←  │
-│  █ ████  │  ──►  │  │   │    │  ──►     │←←←  →→→→→→  │
-│          │       │  └───┘    │          │→→→→  ←←←←←  │
-└──────────┘       └──────┘────┘          └──────────────┘
-```
-
-#### Failure reallocation (Gong et al. 2024)
-
-When a robot fails mid-mission:
-1. Identify its uncompleted cells.
-2. Sort remaining cells by distance from the failed robot's last position.
-3. Assign each cell to the nearest active robot (greedy, nearest-first).
-4. Regenerate full paths for affected robots via A\*.
-
-### 2 · Frontier-Based Exploration
-
-Each robot maintains a *known map* initialised to `UNKNOWN`.  At each tick:
-1. Reveal cells within sensor radius of each robot's current position.
-2. Find **frontier cells** — free cells 4-adjacent to at least one unknown cell.
-3. Cluster raw frontier pixels; compute one centroid per cluster.
-4. Greedily assign the nearest unclaimed frontier to each idle robot.
-5. Plan an A\* path to that frontier; dispatch it.
-
-Frontier exploration is inherently reactive and produces higher overlap than
-BCD but requires no prior map decomposition.
-
-### 3 · A\* Path Planner
-
-Standard A\* on the 2-D occupancy grid with:
-- **8-connectivity** (cardinal + diagonal moves)
-- **Euclidean distance** heuristic (admissible for 8-connectivity)
-- **Corner-clipping prevention** — diagonal moves blocked if either adjacent
-  cardinal neighbour is an obstacle
-- Optional **morphological inflation** of the obstacle mask by robot radius
-
----
-
-## Algorithm Comparison
-
-Results measured on `obstacle_room` (200×200, 0.05 m/px) with 3 robots at
-1 m/s, no failure simulation:
+> Measured results and GIFs will be added after running the full simulation on ROS2 Humble.
+> Numbers below reflect theoretical properties of each algorithm.
 
 | Metric | Boustrophedon | Frontier-based |
-|---|---|---|
-| Coverage completion | **100 %** | ~93 % |
-| Time to 95 % coverage | **~85 s** | ~110 s |
-| Path overlap | **< 5 %** | ~18 % |
-| Handles prior-unknown maps | No — needs full map | **Yes** |
-| Predictable path | **Yes** | No |
-| Robust to map changes | No | **Yes** |
+|---|:---:|:---:|
+| Guaranteed 100% coverage | ✅ | ❌ |
+| Works without prior map | ❌ | ✅ |
+| Path overlap | Low | High |
+| Deterministic | ✅ | ❌ |
+| Measured coverage % | — | — |
+| Measured time to complete | — | — |
 
 ---
 
-## Connection to Real-World AMR Systems
+## Quick Start
 
-BCD-style planners underpin the coverage modules in commercial AMR platforms
-such as **iRobot Create**, **Husarion ROSbot**, and industrial cleaning AMRs.
-The separation between the planner (pure Python, no ROS2 dependency) and the
-coordinator node mirrors the architecture used in production systems: the
-planner can be unit-tested offline, ported to embedded C++, or replaced by
-a learning-based policy without touching the ROS2 communication layer.
-
-Failure reallocation — demonstrated here via a simulated node kill — maps
-directly to real fault-tolerance patterns in warehouse AMR fleets where a
-robot may lose battery, get stuck, or be diverted for a priority task.
-
----
-
-## Project Structure
-
-```
-multi_robot_coverage/          # ROS2 ament_python package
-├── multi_robot_coverage/
-│   ├── algorithms/
-│   │   ├── astar.py           # A* on 2-D grid
-│   │   ├── boustrophedon.py   # BCD + lawnmower path generation
-│   │   └── frontier_based.py  # Frontier detection & assignment
-│   ├── nodes/
-│   │   ├── map_server.py      # PGM loader → OccupancyGrid publisher
-│   │   ├── robot_agent.py     # Simulated robot (waypoint follower)
-│   │   ├── coverage_coordinator.py  # Central planner + failure handler
-│   │   └── visualizer.py      # MarkerArray publisher for RViz2
-│   └── map_generator.py       # Procedural PGM map generator (entry: generate_maps)
-├── maps/
-│   ├── {simple_room,obstacle_room,warehouse}.yaml
-│   └── {simple_room,obstacle_room,warehouse}.pgm
-├── test/
-│   ├── test_astar.py
-│   ├── test_boustrophedon.py
-│   └── test_frontier.py
-├── launch/
-│   └── coverage_demo.launch.py
-├── config/
-│   ├── params.yaml
-│   └── coverage.rviz
-├── package.xml
-├── setup.py
-└── requirements.txt
-
-multi_robot_coverage_msgs/     # Custom message definitions
-├── msg/
-│   ├── CoverageStats.msg
-│   └── AlgorithmComparison.msg
-├── CMakeLists.txt
-└── package.xml
-```
-
----
-
-## Installation
-
-### Prerequisites
-
-- **Ubuntu 22.04**
-- **ROS2 Humble** — [install guide](https://docs.ros.org/en/humble/Installation.html)
-- **Python 3.10+**
-
-### 1 · Create workspace
+**Requires:** Ubuntu 22.04 · ROS2 Humble · Python 3.10+
 
 ```bash
-mkdir -p ~/coverage_ws/src
-cd ~/coverage_ws/src
-# Clone or copy both packages here:
-# - multi_robot_coverage/
-# - multi_robot_coverage_msgs/
+# Clone
+mkdir -p ~/coverage_ws/src && cd ~/coverage_ws/src
+git clone git@github.com:Shadysiam/multi-robot-coverage.git .
+
+# Install Python deps & build
+pip3 install -r multi_robot_coverage/requirements.txt
+cd ~/coverage_ws && source /opt/ros/humble/setup.bash
+colcon build --symlink-install && source install/setup.bash
+
+# Run (opens RViz2 automatically)
+ros2 launch multi_robot_coverage coverage_demo.launch.py \
+    num_robots:=3 algorithm:=boustrophedon map:=obstacle_room
 ```
 
-### 2 · Install Python dependencies
+### Other scenarios
 
 ```bash
-pip3 install -r ~/coverage_ws/src/multi_robot_coverage/requirements.txt
-```
-
-### 3 · Generate maps
-
-```bash
-cd ~/coverage_ws/src/multi_robot_coverage
-python3 -m multi_robot_coverage.map_generator
-```
-
-### 4 · Build
-
-```bash
-cd ~/coverage_ws
-source /opt/ros/humble/setup.bash
-colcon build --symlink-install
-source install/setup.bash
-```
-
----
-
-## Usage
-
-### Basic demo (3 robots, boustrophedon, simple room)
-
-```bash
-ros2 launch multi_robot_coverage coverage_demo.launch.py
-```
-
-### Warehouse with 4 robots
-
-```bash
+# Warehouse sweep with 4 robots
 ros2 launch multi_robot_coverage coverage_demo.launch.py \
     num_robots:=4 map:=warehouse algorithm:=boustrophedon
-```
 
-### Frontier-based on obstacle room
+# Kill robot 1 at t=20s and watch reallocation
+ros2 launch multi_robot_coverage coverage_demo.launch.py \
+    num_robots:=3 map:=warehouse \
+    enable_failure_sim:=true failure_time:=20.0 failure_robot_id:=1
 
-```bash
+# Frontier-based for comparison
 ros2 launch multi_robot_coverage coverage_demo.launch.py \
     num_robots:=3 map:=obstacle_room algorithm:=frontier
 ```
 
-### Failure simulation
+### Unit tests (no ROS2 needed)
 
 ```bash
-ros2 launch multi_robot_coverage coverage_demo.launch.py \
-    num_robots:=3 algorithm:=boustrophedon map:=warehouse \
-    enable_failure_sim:=true failure_time:=20.0 failure_robot_id:=1
-```
-
-### Monitor coverage stats
-
-```bash
-ros2 topic echo /coverage_stats
-```
-
-### Run without RViz2 (headless)
-
-```bash
-ros2 launch multi_robot_coverage coverage_demo.launch.py use_rviz:=false
+cd multi_robot_coverage && pip install pytest numpy scipy
+pytest test/ -v   # 47 tests
 ```
 
 ---
 
-## Parameters Reference
+## Project Layout
 
-| Parameter | Default | Description |
-|---|---|---|
-| `num_robots` | `3` | Number of robots (1–6) |
-| `algorithm` | `boustrophedon` | `boustrophedon` or `frontier` |
-| `map` | `simple_room` | `simple_room`, `obstacle_room`, `warehouse` |
-| `robot_speed` | `1.0` | Simulated speed (m/s) |
-| `enable_failure_sim` | `false` | Kill one robot mid-mission |
-| `failure_time` | `30.0` | Seconds before failure injection |
-| `failure_robot_id` | `-1` | Robot to kill (-1 = random) |
-| `coverage_width_m` | `0.4` | Lawnmower strip width (m) |
-| `robot_radius_m` | `0.2` | Robot radius for A* inflation (m) |
-| `use_rviz` | `true` | Launch RViz2 |
+```
+multi_robot_coverage/
+├── multi_robot_coverage/
+│   ├── algorithms/          # Pure Python — ROS2-free, fully unit-tested
+│   │   ├── astar.py         # 8-connected A* with obstacle inflation
+│   │   ├── boustrophedon.py # BCD decomposition + lawnmower path gen
+│   │   └── frontier_based.py
+│   └── nodes/               # ROS2 layer — thin wrappers around algorithms
+│       ├── map_server.py
+│       ├── robot_agent.py
+│       ├── coverage_coordinator.py
+│       └── visualizer.py
+├── maps/                    # 3 procedurally generated PGM maps
+├── test/                    # 47 pytest unit tests
+├── launch/coverage_demo.launch.py
+└── config/params.yaml · coverage.rviz
+
+multi_robot_coverage_msgs/   # Custom ROS2 message definitions
+└── msg/CoverageStats.msg · AlgorithmComparison.msg
+```
 
 ---
 
-## Map Conventions
+## References
 
-| Property | Value |
-|---|---|
-| Format | PGM P5 (binary), 8-bit greyscale |
-| Resolution | 0.05 m/pixel |
-| Free cell | pixel value 255 (white) |
-| Obstacle cell | pixel value 0 (black) |
-| World frame | `map`, origin at bottom-left |
-| Coordinate axes | X east, Y north (standard ROS) |
+Gong, X., et al. (2024). Multi-Robot Coverage Path Planning Based on Boustrophedon Cellular Decomposition with Propagation-Based Task Reallocation. *Sensors*, 24(23), 7482. https://doi.org/10.3390/s24237482
 
 ---
 
