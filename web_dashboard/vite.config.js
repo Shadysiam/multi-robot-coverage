@@ -7,4 +7,8 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
   },
+  // roslib ships as CommonJS — pre-bundle it so Vite's ESM transform works
+  optimizeDeps: {
+    include: ['roslib'],
+  },
 })
