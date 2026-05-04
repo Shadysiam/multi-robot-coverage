@@ -153,6 +153,15 @@ class CoverageCoordinatorNode(Node):
         self._sub_inject_failure = self.create_subscription(
             String, '/inject_failure', self._cb_inject_failure, 10
         )
+        # Full sim reset (revives failed robots + replans)
+        self._sub_reset_sim = self.create_subscription(
+            String, '/reset_sim', self._cb_reset_sim, 10
+        )
+        # Forwarded /set_map echo — tells us to expect a new map on /map
+        self._sub_set_map_echo = self.create_subscription(
+            String, '/set_map', self._cb_set_map_echo, 10
+        )
+        self._expecting_new_map = False
 
         # ------------------------------------------------------------------
         # Publishers
@@ -167,6 +176,9 @@ class CoverageCoordinatorNode(Node):
         ]
         self._pub_cov_map = self.create_publisher(
             OccupancyGrid, "/coverage_map", _tl
+        )
+        self._pub_redundancy = self.create_publisher(
+            OccupancyGrid, "/coverage_redundancy", _tl
         )
         self._pub_stats = self.create_publisher(
             CoverageStats, "/coverage_stats", 10
@@ -205,8 +217,23 @@ class CoverageCoordinatorNode(Node):
     # ------------------------------------------------------------------
 
     def _cb_map(self, msg: OccupancyGrid) -> None:
-        if self._state != _State.WAITING_FOR_MAP:
+        # Accept the map at startup, OR when /set_map was just received
+        # (dashboard requested a switch).  Otherwise this is the 1Hz
+        # republish keep-alive and we ignore it.
+        is_initial = self._state == _State.WAITING_FOR_MAP
+        if not (is_initial or self._expecting_new_map):
             return
+
+        if self._expecting_new_map:
+            self._expecting_new_map = False
+            self.get_logger().info("New map received — full reset and replan")
+            # Revive any failed robots so they participate in the new run
+            for rid in list(self._failed_robots):
+                b = Bool()
+                b.data = False
+                self._pub_fail[rid].publish(b)
+            self._failed_robots.clear()
+
         self._grid_msg = msg
         rows = msg.info.height
         cols = msg.info.width
@@ -229,6 +256,9 @@ class CoverageCoordinatorNode(Node):
         self._raw_grid = raw_grid   # kept for visualisation only
 
         self._coverage = np.zeros((rows, cols), dtype=np.uint8)
+        # Per-cell count of distinct robots that have visited — used for
+        # the redundancy heatmap.  0 = unvisited, 1 = single-cover, 2+ = redundant.
+        self._redundancy = np.zeros((rows, cols), dtype=np.uint8)
         # Mark inflated obstacles in coverage map (the safety buffer is
         # intentionally rendered as obstacle — it tells the user where the
         # robot literally cannot fit).
@@ -249,9 +279,11 @@ class CoverageCoordinatorNode(Node):
         self._robot_poses[robot_id] = (x, y)
         if self._coverage is None or self._grid is None:
             return
-        # Mark coverage: paint cells within robot radius as covered.
+        # Mark coverage: paint cells within robot radius (+1 cell slack) as
+        # covered.  The +1 ensures adjacent lawnmower strips overlap by 1 cell
+        # so no thin gaps survive between them.
         r, c = self._world_to_grid(x, y)
-        rad = max(1, int(self._radius_m / self._resolution))
+        rad = max(1, int(self._radius_m / self._resolution) + 1)
         rows, cols = self._grid.shape
         r_min = max(0, r - rad)
         r_max = min(rows - 1, r + rad)
@@ -260,12 +292,18 @@ class CoverageCoordinatorNode(Node):
         stamp = (robot_id + 1) * 10  # 10, 20, 30, …
         for rr in range(r_min, r_max + 1):
             for cc in range(c_min, c_max + 1):
-                if (
-                    math.hypot(rr - r, cc - c) <= rad
-                    and self._grid[rr, cc] < 50
-                    and self._coverage[rr, cc] == _UNCOVERED
-                ):
+                if not (math.hypot(rr - r, cc - c) <= rad):
+                    continue
+                if self._grid[rr, cc] >= 50:
+                    continue
+                cur = self._coverage[rr, cc]
+                if cur == _UNCOVERED:
                     self._coverage[rr, cc] = stamp
+                    self._redundancy[rr, cc] = 1
+                elif cur != stamp and cur != _OBSTACLE:
+                    # Covered before by a *different* robot — increment.
+                    if self._redundancy[rr, cc] < 250:
+                        self._redundancy[rr, cc] += 1
 
     def _cb_status(self, msg: String, robot_id: int) -> None:
         self._robot_statuses[robot_id] = msg.data
@@ -275,6 +313,23 @@ class CoverageCoordinatorNode(Node):
                 f"Robot {robot_id} reported FAILED — initiating reallocation"
             )
             self._state = _State.FAILURE
+
+    def _cb_set_map_echo(self, _msg: String) -> None:
+        """Mark that we expect the next /map message to be a different map."""
+        self._expecting_new_map = True
+
+    def _cb_reset_sim(self, _msg: String) -> None:
+        """Full reset — revive any failed robots and replan from scratch."""
+        if self._grid is None:
+            return
+        self.get_logger().info("🔄 Full sim reset requested")
+        # Revive every failed robot.  fail_trigger=False means "back to life".
+        for rid in list(self._failed_robots):
+            b = Bool()
+            b.data = False
+            self._pub_fail[rid].publish(b)
+        self._failed_robots.clear()
+        self._reset_and_replan()
 
     def _cb_inject_failure(self, msg: String) -> None:
         """Dashboard-triggered failure injection.
@@ -335,6 +390,7 @@ class CoverageCoordinatorNode(Node):
         rows, cols = self._grid.shape
         self._coverage = np.zeros((rows, cols), dtype=np.uint8)
         self._coverage[self._grid >= 50] = _OBSTACLE
+        self._redundancy = np.zeros((rows, cols), dtype=np.uint8)
         self._robot_remaining_cells = {}
         self._failed_robots = set()
         self._failure_triggered = False
@@ -402,7 +458,14 @@ class CoverageCoordinatorNode(Node):
         cells = decomposer.decompose(self._grid)
         self.get_logger().info(f"BCD produced {len(cells)} cells")
 
-        assignment = decomposer.assign_to_robots(cells, self._n)
+        # Hungarian assignment + nearest-neighbour TSP per robot
+        # → minimises max workload AND inter-cell travel
+        starts = self._default_start_positions()
+        assignment = decomposer.assign_to_robots(
+            cells, self._n,
+            robot_starts=starts,
+            method="hungarian",
+        )
         self._robot_remaining_cells = {
             rid: list(clist) for rid, clist in assignment.items()
         }
@@ -417,7 +480,10 @@ class CoverageCoordinatorNode(Node):
         """Baseline: each robot performs a biased random walk."""
         assert self._grid is not None
         starts = self._default_start_positions()
-        planner = RandomWalkPlanner(num_steps=10000, step_size=2, seed=42)
+        # Random walk is a baseline — give it enough steps to be measurable
+        # but not so many it runs forever.  ~1500 steps × 0.1 m = 150 m of travel
+        # which is roughly 2-3 minutes at 1 m/s and converges to ~55-65% coverage.
+        planner = RandomWalkPlanner(num_steps=1500, step_size=2, seed=42)
         paths = planner.assign_to_robots(self._grid, self._n, starts)
         for robot_id, grid_path in paths.items():
             world_path = [self._grid_to_world(*p) for p in grid_path]
@@ -443,7 +509,13 @@ class CoverageCoordinatorNode(Node):
 
     def _plan_frontier(self) -> None:
         assert self._grid is not None
-        sensor_r = max(10, int(0.5 / self._resolution) * 5)  # ~2.5 m
+        # Sensor radius governs how much area each robot "reveals" per step.
+        # If we make it too large (e.g. 2.5 m), the robot doesn't need to
+        # physically traverse cells to consider them explored — coverage
+        # (cells *painted* by the robot footprint) ends up ~20%.  We use a
+        # smaller radius (~0.4 m, just over the robot footprint) so frontier
+        # exploration actually requires physical coverage.
+        sensor_r = max(5, int(0.4 / self._resolution))  # ~0.4 m = 8 cells
         self._frontier_explorer = FrontierExplorer(
             self._grid, sensor_radius=sensor_r
         )
@@ -469,15 +541,29 @@ class CoverageCoordinatorNode(Node):
         decomposer: BoustrophedonDecomposer,
         planner: AStar,
         inflation: int,
+        start_pos: Optional[tuple[int, int]] = None,
     ) -> list[tuple[float, float]]:
-        """Concatenate lawnmower + A* inter-cell segments into world coords."""
+        """Concatenate lawnmower + A* inter-cell segments into world coords.
+
+        Parameters
+        ----------
+        start_pos : (row, col) or None
+            Grid cell to start planning from.  When ``None`` the default
+            start position is used (initial planning).  During failure
+            recovery this is set to the surviving robot's *current* grid
+            position so the new path begins where the robot actually is —
+            no teleport-to-start.
+        """
         assert self._grid is not None
         world_path: list[tuple[float, float]] = []
         prev_grid: Optional[tuple[int, int]] = None
 
-        starts = self._default_start_positions()
-        if robot_id < len(starts):
-            prev_grid = starts[robot_id]
+        if start_pos is not None:
+            prev_grid = self._snap_to_free(*start_pos)
+        else:
+            starts = self._default_start_positions()
+            if robot_id < len(starts):
+                prev_grid = starts[robot_id]
 
         for cell in cells:
             sweep = decomposer.generate_path(cell, self._grid)
@@ -752,16 +838,47 @@ class CoverageCoordinatorNode(Node):
             for robot_id, cells in self._robot_remaining_cells.items():
                 if robot_id == failed_id:
                     continue
+                # Filter out cells that are already > 70% covered — saves the
+                # surviving robot from re-driving work it already finished.
+                cells_to_do = self._filter_uncompleted_cells(cells)
+                if not cells_to_do:
+                    continue
+                # Plan from the robot's CURRENT pose so it doesn't teleport.
+                current_pos = grid_positions.get(robot_id)
                 path_poses = self._build_full_path(
-                    robot_id, cells, decomposer, planner, inflation
+                    robot_id, cells_to_do, decomposer, planner, inflation,
+                    start_pos=current_pos,
                 )
                 if path_poses:
                     self._send_waypoints(robot_id, path_poses)
                     self.get_logger().info(
-                        f"Reallocated {len(cells)} cells to robot {robot_id}"
+                        f"Reallocated → robot {robot_id}: "
+                        f"{len(cells_to_do)}/{len(cells)} cells still need work"
                     )
 
         self._state = _State.RUNNING
+
+    def _filter_uncompleted_cells(
+        self, cells: list[CoverageCell]
+    ) -> list[CoverageCell]:
+        """Return cells with ≥ 30% of their points still uncovered.
+
+        Used during failure recovery so surviving robots skip re-doing
+        cells they had already finished before the failure occurred.
+        """
+        if self._coverage is None:
+            return list(cells)
+        result: list[CoverageCell] = []
+        for cell in cells:
+            if not cell.points:
+                continue
+            uncovered = sum(
+                1 for (r, c) in cell.points
+                if self._coverage[r, c] == _UNCOVERED
+            )
+            if uncovered >= cell.area * 0.30:
+                result.append(cell)
+        return result
 
     # ------------------------------------------------------------------
     # Waypoint publishing
@@ -789,6 +906,7 @@ class CoverageCoordinatorNode(Node):
     def _publish_coverage_map(self) -> None:
         if self._coverage is None or self._grid_msg is None:
             return
+        # Coverage map (who covered what)
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
@@ -798,6 +916,20 @@ class CoverageCoordinatorNode(Node):
         display = np.flipud(self._coverage.copy()).astype(np.int8)
         msg.data = display.flatten().tolist()
         self._pub_cov_map.publish(msg)
+
+        # Redundancy heatmap (how many distinct robots have visited each cell)
+        if self._redundancy is not None:
+            rmsg = OccupancyGrid()
+            rmsg.header = msg.header
+            rmsg.info   = msg.info
+            # Mask obstacles → 255 (which becomes -1 when reinterpreted as int8)
+            r_internal = np.where(
+                self._grid >= 50, 255, self._redundancy
+            ).astype(np.uint8)
+            # Flip once: internal row-0=top → ROS row-0=bottom
+            r_disp = np.flipud(r_internal).view(np.int8)
+            rmsg.data = r_disp.flatten().tolist()
+            self._pub_redundancy.publish(rmsg)
 
     # ------------------------------------------------------------------
     # Stats publisher

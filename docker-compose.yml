@@ -9,15 +9,9 @@ services:
     image: multi_robot_coverage:humble
 
     environment:
-      - DISPLAY=:99
-      - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=42
-      - LIBGL_ALWAYS_SOFTWARE=1
-      - GALLIUM_DRIVER=llvmpipe
-      - MESA_GL_VERSION_OVERRIDE=3.3
 
     ports:
-      - "6080:6080"     # noVNC (RViz2 in browser)
       - "9090:9090"     # rosbridge WebSocket → web dashboard
 
     volumes:

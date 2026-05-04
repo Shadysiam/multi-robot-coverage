@@ -229,6 +229,9 @@ class BoustrophedonDecomposer:
 
         Horizontal strips of width ``coverage_width`` are swept row by row.
         Alternate strips are traversed right-to-left to minimise travel.
+        We always include a final strip near ``r_max`` so the bottom edge
+        of the cell is fully covered (otherwise cells between the last
+        strip and r_max get missed when the gap > coverage_width / 2).
 
         Parameters
         ----------
@@ -249,24 +252,27 @@ class BoustrophedonDecomposer:
         r_min, r_max, c_min, c_max = cell.bounding_box
         free = grid < self._occ_thresh
 
-        path: list[tuple[int, int]] = []
-        row = r_min
-        strip_index = 0
+        # Build strip rows.  Always start at r_min, step by coverage_width,
+        # and ensure the final strip is close to r_max (within half-spacing).
+        strip_rows = list(range(r_min, r_max + 1, self._coverage_width))
+        if not strip_rows:
+            strip_rows = [r_min]
+        if strip_rows[-1] < r_max - self._coverage_width // 2:
+            strip_rows.append(r_max)
 
-        while row <= r_max:
-            # Collect passable columns on this strip row.
+        path: list[tuple[int, int]] = []
+        for strip_index, row in enumerate(strip_rows):
             strip_cols = [
                 c
                 for c in range(c_min, c_max + 1)
                 if (row, c) in cell.points and free[row, c]
             ]
-            if strip_cols:
-                if strip_index % 2 == 0:
-                    path.extend((row, c) for c in strip_cols)
-                else:
-                    path.extend((row, c) for c in reversed(strip_cols))
-            row += self._coverage_width
-            strip_index += 1
+            if not strip_cols:
+                continue
+            if strip_index % 2 == 0:
+                path.extend((row, c) for c in strip_cols)
+            else:
+                path.extend((row, c) for c in reversed(strip_cols))
 
         return path
 
@@ -275,12 +281,13 @@ class BoustrophedonDecomposer:
     # ------------------------------------------------------------------
 
     def assign_to_robots(
-        self, cells: list[CoverageCell], n_robots: int
+        self,
+        cells: list[CoverageCell],
+        n_robots: int,
+        robot_starts: Optional[list[tuple[int, int]]] = None,
+        method: str = "hungarian",
     ) -> dict[int, list[CoverageCell]]:
-        """Distribute cells across N robots by greedy area-balancing.
-
-        The cell list is sorted by area (descending) and assigned to
-        whichever robot currently has the smallest total workload.
+        """Distribute cells across N robots, balancing area and travel.
 
         Parameters
         ----------
@@ -288,23 +295,129 @@ class BoustrophedonDecomposer:
             All coverage cells from ``decompose``.
         n_robots:
             Number of robots to distribute among.
+        robot_starts:
+            Per-robot starting (row, col) — used to favour assigning each
+            robot the cells closest to its start.  When ``None``, the cells
+            are simply area-balanced.
+        method:
+            ``"hungarian"`` (default) — Hungarian-flavoured iterative
+            assignment minimising the *maximum* robot workload while
+            preferring nearby cells.  Falls back to greedy if scipy isn't
+            available.
+            ``"greedy"`` — original greedy area-balancing.
 
         Returns
         -------
         dict[int, list[CoverageCell]]
-            Maps robot ID (0-indexed) → ordered list of cells.
+            Maps robot ID (0-indexed) → list of cells (TSP-ordered).
         """
+        if method == "greedy" or robot_starts is None:
+            assignment = self._assign_greedy(cells, n_robots)
+        else:
+            assignment = self._assign_hungarian(cells, n_robots, robot_starts)
+
+        # TSP-order each robot's cells by nearest-neighbour from its start.
+        if robot_starts is not None:
+            for rid, robot_cells in assignment.items():
+                start = robot_starts[rid] if rid < len(robot_starts) else (0, 0)
+                assignment[rid] = self._order_cells_nearest_neighbour(
+                    robot_cells, start
+                )
+        return assignment
+
+    @staticmethod
+    def _assign_greedy(
+        cells: list[CoverageCell], n_robots: int
+    ) -> dict[int, list[CoverageCell]]:
+        """Original greedy area-balancing baseline."""
         assignment: dict[int, list[CoverageCell]] = {
             i: [] for i in range(n_robots)
         }
         workload = [0] * n_robots
-
         for cell in sorted(cells, key=lambda c: c.area, reverse=True):
             robot_id = workload.index(min(workload))
             assignment[robot_id].append(cell)
             workload[robot_id] += cell.area
-
         return assignment
+
+    @staticmethod
+    def _assign_hungarian(
+        cells: list[CoverageCell],
+        n_robots: int,
+        robot_starts: list[tuple[int, int]],
+    ) -> dict[int, list[CoverageCell]]:
+        """Iterative Hungarian — repeatedly pick the optimal matching of
+        the next ``n_robots`` un-assigned cells (sorted by area desc) to
+        robots, with cost = α·distance + β·current_workload.
+
+        This minimises the *max* workload while preferring nearby cells,
+        which is what we actually care about (mission completion time).
+        """
+        try:
+            from scipy.optimize import linear_sum_assignment
+        except ImportError:
+            return BoustrophedonDecomposer._assign_greedy(cells, n_robots)
+
+        ALPHA = 1.0     # distance weight
+        BETA  = 50.0    # workload-balance weight (per robot cell)
+
+        assignment: dict[int, list[CoverageCell]] = {
+            i: [] for i in range(n_robots)
+        }
+        workload = [0] * n_robots
+        # Process cells in batches of n_robots (largest first)
+        ordered_cells = sorted(cells, key=lambda c: c.area, reverse=True)
+
+        for i in range(0, len(ordered_cells), n_robots):
+            batch = ordered_cells[i: i + n_robots]
+            if not batch:
+                break
+
+            # Pad batch with dummy cells of zero cost if smaller than n_robots
+            n_b = len(batch)
+            cost = np.zeros((n_robots, max(n_robots, n_b)), dtype=np.float64)
+            for r in range(n_robots):
+                for c in range(n_b):
+                    cell = batch[c]
+                    cr, cc = cell.centroid
+                    sr, sc = robot_starts[r]
+                    dist = math.hypot(cr - sr, cc - sc)
+                    cost[r, c] = ALPHA * dist + BETA * workload[r]
+                # Pad columns if any
+                for c in range(n_b, n_robots):
+                    cost[r, c] = 1e9   # avoid the dummy
+
+            row_ind, col_ind = linear_sum_assignment(cost)
+            for r, c in zip(row_ind, col_ind):
+                if c < n_b:
+                    assignment[r].append(batch[c])
+                    workload[r] += batch[c].area
+        return assignment
+
+    @staticmethod
+    def _order_cells_nearest_neighbour(
+        cells: list[CoverageCell],
+        start: tuple[int, int],
+    ) -> list[CoverageCell]:
+        """Reorder a robot's cell list using nearest-neighbour TSP from
+        the start position.  Greedy but very effective for small N (3-6
+        cells per robot)."""
+        if not cells:
+            return cells
+        remaining = list(cells)
+        ordered: list[CoverageCell] = []
+        cur = start
+        while remaining:
+            nxt = min(
+                remaining,
+                key=lambda c: math.hypot(
+                    c.centroid[0] - cur[0], c.centroid[1] - cur[1]
+                ),
+            )
+            ordered.append(nxt)
+            cur = (int(nxt.centroid[0]), int(nxt.centroid[1]))
+            remaining.remove(nxt)
+        return ordered
 
     def reallocate_failed_robot(
         self,

@@ -47,8 +47,8 @@ class MapServerNode(Node):
             str(Path(__file__).parent.parent.parent / "maps"),
         )
 
-        map_name: str = self.get_parameter("map_name").value
-        maps_dir: str = self.get_parameter("maps_dir").value
+        self._map_name: str = self.get_parameter("map_name").value
+        self._maps_dir: str = self.get_parameter("maps_dir").value
 
         qos = QoSProfile(
             depth=1,
@@ -58,10 +58,32 @@ class MapServerNode(Node):
         self._pub = self.create_publisher(OccupancyGrid, "/map", qos)
 
         self._grid_msg: Optional[OccupancyGrid] = None
-        self._load_map(maps_dir, map_name)
+        self._load_map(self._maps_dir, self._map_name)
+
+        # Live map switching from the dashboard
+        from std_msgs.msg import String
+        self._sub_set_map = self.create_subscription(
+            String, '/set_map', self._cb_set_map, 10
+        )
 
         # Re-publish at 1 Hz so late-joining nodes receive it.
         self._timer = self.create_timer(1.0, self._publish)
+
+    # ------------------------------------------------------------------
+    # Live map switch
+    # ------------------------------------------------------------------
+
+    def _cb_set_map(self, msg) -> None:
+        new_name = (msg.data or "").strip()
+        if not new_name or new_name == self._map_name:
+            return
+        self.get_logger().info(
+            f"Switching map: {self._map_name} → {new_name}"
+        )
+        self._map_name = new_name
+        self._load_map(self._maps_dir, new_name)
+        # Immediately republish so coordinator picks it up
+        self._publish()
 
     # ------------------------------------------------------------------
     # Map loading

@@ -119,6 +119,12 @@ class RobotAgentNode(Node):
         self._y: float = 0.0
         self._yaw: float = 0.0
         self._dt: float = 1.0 / rate
+        # Track first path so we only teleport-to-start once (initial spawn),
+        # not on every subsequent re-plan (e.g. failure-recovery, algo switch).
+        self._first_path_received: bool = False
+        # Maximum motion per tick before subdividing — keeps the robot from
+        # interpolating across obstacles when speed is increased.
+        self._max_step_per_tick: float = 0.05   # one grid cell at 0.05 m/cell
 
         self._timer = self.create_timer(self._dt, self._step)
         self.get_logger().info(
@@ -130,36 +136,66 @@ class RobotAgentNode(Node):
     # ------------------------------------------------------------------
 
     def _cb_waypoints(self, msg: Path) -> None:
-        """Receive a new waypoint path and start executing it."""
-        if self._status == self._STATUS_FAILED:
-            return
-        # Empty path = reset signal (algorithm switch)
+        """Receive a new waypoint path and start executing it.
+
+        Behaviour
+        ---------
+        * Empty Path → reset to idle (always — even when failed, since this
+          is also used as a sim-reset signal and dead robots need to revive).
+        * **First** non-empty Path → teleport to first waypoint (initial spawn).
+        * Subsequent Paths → keep current position, restart waypoint index.
+          This makes failure-recovery seamless — the robot continues from
+          wherever it was when its path was reassigned.
+        """
+        # Empty path = reset signal — handle even when failed (revive)
         if not msg.poses:
             self._waypoints = []
             self._wp_index = 0
             self._status = self._STATUS_IDLE
+            self._first_path_received = False
             self._publish_status()
             return
+
+        # Non-empty path while failed → ignore (still dead until revived)
+        if self._status == self._STATUS_FAILED:
+            return
+
         self._waypoints = list(msg.poses)
         self._wp_index = 0
-        if self._waypoints:
+
+        if not self._first_path_received:
+            # Initial spawn — teleport to the first waypoint.
             first = self._waypoints[0]
             self._x = first.pose.position.x
             self._y = first.pose.position.y
-            self._status = self._STATUS_ACTIVE
-            self.get_logger().info(
-                f"Robot {self._robot_id}: received path with "
-                f"{len(self._waypoints)} waypoints"
-            )
-            self._pub_path.publish(msg)
+            self._first_path_received = True
+        # else: keep current pose, robot will drive toward first waypoint.
+
+        self._status = self._STATUS_ACTIVE
+        self.get_logger().info(
+            f"Robot {self._robot_id}: received path with "
+            f"{len(self._waypoints)} waypoints"
+        )
+        self._pub_path.publish(msg)
         self._publish_status()
 
     def _cb_fail(self, msg: Bool) -> None:
-        """Simulate robot failure."""
-        if msg.data and self._status != self._STATUS_FAILED:
-            self._status = self._STATUS_FAILED
-            self._publish_status()
-            self.get_logger().warn(f"Robot {self._robot_id}: FAILED (simulated)")
+        """Failure / revival signal.
+
+        ``msg.data == True``  → kill the robot (status = failed)
+        ``msg.data == False`` → revive a failed robot (status = idle)
+        """
+        if msg.data:
+            if self._status != self._STATUS_FAILED:
+                self._status = self._STATUS_FAILED
+                self._publish_status()
+                self.get_logger().warn(f"Robot {self._robot_id}: FAILED (simulated)")
+        else:
+            if self._status == self._STATUS_FAILED:
+                self._status = self._STATUS_IDLE
+                self._first_path_received = False
+                self._publish_status()
+                self.get_logger().info(f"Robot {self._robot_id}: REVIVED")
 
     def _cb_set_speed(self, msg: Float64) -> None:
         """Update robot speed live from the dashboard."""
@@ -171,36 +207,48 @@ class RobotAgentNode(Node):
     # ------------------------------------------------------------------
 
     def _step(self) -> None:
-        """Advance robot position by one timestep along its path."""
+        """Advance robot position by one timestep along its path.
+
+        Sub-stepping: if the per-tick distance (speed × dt) exceeds the
+        configured max-step-per-tick (one grid cell), we subdivide into
+        N sub-steps so the robot never linearly interpolates more than
+        one cell at a time.  This eliminates obstacle crossing at high
+        playback speeds.
+        """
         if self._status != self._STATUS_ACTIVE:
             self._publish_pose()
             return
 
-        if self._wp_index >= len(self._waypoints):
-            self._status = self._STATUS_COMPLETE
-            self._publish_status()
-            self.get_logger().info(f"Robot {self._robot_id}: path COMPLETE")
-            self._publish_pose()
-            return
+        total_step = self._speed * self._dt
+        n_sub = max(1, int(math.ceil(total_step / self._max_step_per_tick)))
+        sub_step = total_step / n_sub
 
-        target = self._waypoints[self._wp_index]
-        tx = target.pose.position.x
-        ty = target.pose.position.y
+        for _ in range(n_sub):
+            if self._wp_index >= len(self._waypoints):
+                self._status = self._STATUS_COMPLETE
+                self._publish_status()
+                self.get_logger().info(
+                    f"Robot {self._robot_id}: path COMPLETE"
+                )
+                break
 
-        dx = tx - self._x
-        dy = ty - self._y
-        dist = math.hypot(dx, dy)
-        step = self._speed * self._dt
+            target = self._waypoints[self._wp_index]
+            tx = target.pose.position.x
+            ty = target.pose.position.y
 
-        if dist <= step:
-            self._x = tx
-            self._y = ty
-            self._wp_index += 1
-        else:
-            ratio = step / dist
-            self._x += dx * ratio
-            self._y += dy * ratio
-            self._yaw = math.atan2(dy, dx)
+            dx = tx - self._x
+            dy = ty - self._y
+            dist = math.hypot(dx, dy)
+
+            if dist <= sub_step:
+                self._x = tx
+                self._y = ty
+                self._wp_index += 1
+            else:
+                ratio = sub_step / dist
+                self._x += dx * ratio
+                self._y += dy * ratio
+                self._yaw = math.atan2(dy, dx)
 
         self._publish_pose()
 
