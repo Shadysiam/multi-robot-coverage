@@ -238,3 +238,243 @@ If picking this up cold, the next concrete task is:
 > "Run each of the 4 algorithms on the obstacle_room map for 60s, record coverage %, total distance, completion time. Put the numbers into a README comparison table. Then generate a demo GIF showing BCD running with the failure-injection button being clicked at ~30s, demonstrating reallocation. Then write the full recruiter-friendly README using the structure suggested in `chatgpt_nav_suggestions.md` (Overview / Problem / Architecture / Challenges / Solutions / Results / Algorithm comparison / Demo / Setup / Future work)."
 
 The core engineering is solid. What's left is **packaging the result** for recruiters.
+
+---
+
+## 12. Recommended improvements (next-session menu)
+
+Sorted by portfolio impact. Tier 1 should be considered mandatory before pushing to GitHub.
+
+### 🎯 Tier 1 — Mandatory before sharing publicly
+
+**1.1 Headless benchmark mode + JSON metrics export** *(2–3 hrs)*
+- `make benchmark` runs each of the 4 algorithms on each of the 3 maps (12 runs)
+- Per-run JSON: coverage curve, distance per robot, redundancy (cells covered ≥ 2×), completion time
+- Aggregates to `/results/benchmark.csv`
+- This is what fills the README comparison table with real numbers
+
+**1.2 Multi-curve overlay on coverage chart** *(1–2 hrs)*
+- Load saved benchmark JSONs, overlay all 4 algorithm curves on the existing live chart
+- Live run = bold line, saved benchmarks = faded reference lines
+- Visual proof BCD wins, in one screenshot
+
+**1.3 Recruiter-grade README + demo GIFs** *(half a day)*
+- Mermaid architecture diagram, real-numbers comparison table, 3 demo GIFs (BCD running, failure injection + reallocation, algorithms side-by-side)
+- Sections: Problem / Architecture / Challenges / Solutions / Results / Setup / Future work
+- This is what gets clicked
+
+### 🚀 Tier 2 — Algorithmic depth signals seniority
+
+**2.1 Realistic kinematics — pure-pursuit controller** *(2 hrs)*
+- Add `v_max = 1.0 m/s`, `ω_max = 1.5 rad/s`, `accel_max = 0.5 m/s²` to robot_agent
+- Replace linear interpolation with pure-pursuit picking `(v, ω)` toward next waypoint
+- Robots arc around corners instead of cutting them — dramatic visual upgrade
+- **Prerequisite for DWA to make sense** (see §13)
+
+**2.2 Dynamic obstacles + runtime replanning** *(half a day)*
+- Click on map to drop a moving box obstacle
+- Coordinator detects current path is blocked → A\* replan from current position to next waypoint → splice detour in
+- Pairs naturally with DWA (§13). No other coverage demo on GitHub does this.
+
+**2.3 Hungarian algorithm for cell assignment** *(2 hrs)*
+- Replace greedy area-balancing with Hungarian (optimal min-max assignment)
+- Classic OR technique recruiters know from Amazon, Google, Anduril
+- Takes BCD from "good" to "provably optimal under this cost"
+
+**2.4 TSP-ordered cell sequencing per robot** *(2 hrs)*
+- Within each robot's cells, brute-force TSP over centroids (3–5 cells, fits in milliseconds)
+- Should improve total-distance metric by ~15–25%
+
+### 🎨 Tier 3 — Visual quality wins
+
+**3.1 Smooth 60 fps pose interpolation** *(1 hr)*
+- Lerp robot positions in canvas between received messages
+- Massive perceptual upgrade from current 20 Hz teleport feel
+
+**3.2 Coverage heatmap overlay** *(1–2 hrs)*
+- Toggle: cells covered once = normal, 2× = warm orange, 3× = red
+- Visually proves BCD's low redundancy vs random walk's mess
+
+**3.3 BCD cell-boundary overlay** *(1 hr)*
+- Toggle showing decomposed cells as faint coloured polygons with IDs
+- Makes the algorithm tangible — recruiters can literally see the math working
+
+**3.4 Replay scrubber** *(half a day)*
+- Record pose + coverage timeline, bottom timeline scrubs backwards/forwards
+- Pause and study any moment
+
+### 🏗 Tier 4 — Engineering credibility (quick wins)
+
+**4.1 Pytest coverage badge** *(30 min)* — `pytest --cov` → badge → README
+**4.2 Type hints + mypy in CI** *(2 hrs)* — modern Python signal
+**4.3 Profile BCD on 500×500 map, write perf section** *(2 hrs)* — "engineer who measures"
+**4.4 Remove noVNC dead weight from Docker** *(15 min)* — saves image size, kills the confusing black screen
+
+### 📈 Tier 5 — Strategic distribution
+
+**5.1 2-minute video walkthrough** *(half a day)* — Loom/YouTube, embedded in README. This is what people share on LinkedIn.
+**5.2 Blog post** *(half a day)* — "Implementing BCD from scratch." Show the bug-hunt journey — devs love it. Drives organic traffic.
+**5.3 Hosted demo** *(full day)* — VPS for sim + Vercel for dashboard. Recruiters click a link, no setup. Massive differentiator if you pull it off.
+
+### 📋 Recommended day-by-day if you commit fully
+
+```
+Day 1 (data + framing):
+  1.1 Headless benchmark      ← unlocks everything else
+  1.2 Multi-curve chart
+  1.3 Recruiter README + GIFs
+
+Day 2 (algorithmic credibility):
+  2.3 Hungarian assignment
+  2.4 TSP cell sequencing
+  3.1 Smooth interpolation
+  3.2 Heatmap overlay
+
+Day 3 (the showpiece):
+  2.1 Realistic kinematics    ← prereq for §13
+  2.2 Dynamic obstacles
+  §13 DWA local planner       ← see below
+  5.1 Video walkthrough
+
+Day 4 (publish):
+  Push to GitHub, post on LinkedIn, share blog post
+```
+
+Tier 1 alone moves this from "another student project" to "I'd interview this person." Everything below is multiplicative gravy.
+
+---
+
+## 13. About MPC and DWA (the ChatGPT doc mentioned them)
+
+**Important framing:** MPC and DWA are **not coverage planners** — they're **local motion controllers**. They solve "given my current state and a short-term goal, what velocity command should I send for the next 0.1s?" They live below A\* in the planning hierarchy.
+
+Our current stack:
+```
+BCD (global)  →  A* (path between cells)  →  linear_interp(prev, next)  ← motion control
+```
+
+DWA / MPC would replace that last layer.
+
+### DWA — yes, but only paired with dynamic obstacles
+On a purely static map, DWA adds nothing — A\* already gave us a safe path. **But add dynamic obstacles (§2.2) and DWA becomes the right tool**: the robot must choose `(v, ω)` each tick to avoid the moving thing while still tracking the BCD path. That gives the project a complete, legitimate three-layer nav stack:
+
+```
+BCD (global coverage)  →  A* (static path)  →  DWA (reactive velocity control)
+```
+
+Recruiters at Waymo / Cruise / Boston Dynamics will immediately recognise that as a real architecture. **Effort:** ~half a day. Pairs with §2.1 (kinematics) and §2.2 (dynamic obstacles).
+
+### MPC — honest answer: skip it
+MPC is heavy machinery (constrained QP over a finite horizon). It's right for:
+- Real kinodynamic constraints (cars, drones, manipulators)
+- Tight tracking requirements with limited control authority
+
+Our point-mass robots have none of that. Adding MPC means:
+- Solver dependency (cvxpy/OSQP) complicates Docker
+- Days of debugging convergence
+- Visible end-result almost identical to pure-pursuit (§2.1)
+
+**ROI doesn't justify it here.** If a future version adds a car-like robot or a manipulator, MPC becomes the right tool. Today it's a Ferrari trip to the grocery store.
+
+### TL;DR
+- **DWA** = yes, paired with §2.1 + §2.2
+- **MPC** = no, save your time
+- **Pure-pursuit (§2.1)** = the realistic-but-cheap motion controller that does 80% of what MPC would, in 2 hours instead of 2 days
+
+---
+
+## 14. The "best 5 things to do next" (if time is limited)
+
+If you only have one weekend:
+
+1. Headless benchmark + JSON export *(§1.1)*
+2. Recruiter README + demo GIFs *(§1.3)*
+3. Multi-curve chart overlay *(§1.2)*
+4. Smooth interpolation + heatmap *(§3.1 + §3.2)*
+5. Push to GitHub, share on LinkedIn
+
+If you have a full week, add §2.1 + §2.2 + DWA *(§13)* for the showpiece, and §5.1 (video) for distribution.
+
+---
+
+## 15. Latest session changes (since commit 011a804)
+
+This is what's been added/fixed in the most recent working session — committed locally but not yet to a single commit (work-in-progress).
+
+### Backend (planning / coordinator / agents)
+
+- **Inflated planning grid** — `_cb_map` runs `binary_dilation` on obstacles by `robot_radius / resolution = 4 cells`. BCD, A*, lawnmower, and coverage all now operate on the safety-padded grid by construction. A* uses `inflation_radius=0` everywhere because the grid is already inflated.
+- **Bresenham line validation** — every accepted segment in `_validate_segments` is line-checked; obstacle-grazing segments are replaced with A* detours.
+- **Densify-prev fix** — `_densify_path` distance check uses `dense[-1]` (last accepted point) so dropping a waypoint can't create a longer cross-obstacle jump.
+- **Per-tick step capping** — `robot_agent._step()` subdivides each tick to ≤ 1 cell of motion. At 5× speed (5 m/s) it now does 5 sub-steps instead of one giant 5-cell jump.
+- **Robot teleport only on first path** — `_first_path_received` flag means subsequent paths (failure recovery, algo switch) keep current pose; no more teleport-to-start mid-mission.
+- **Failure recovery from current pose** — `_build_full_path(start_pos=...)` accepts a starting cell. `_handle_failure` passes each survivor's current grid position. **`_filter_uncompleted_cells`** also drops cells that are already > 70 % covered so survivors don't redo work.
+- **Hungarian assignment** — `boustrophedon.assign_to_robots(method="hungarian")` uses `scipy.optimize.linear_sum_assignment` with cost = α·distance + β·workload. Falls back to greedy if scipy unavailable.
+- **Nearest-neighbour TSP per robot** — within each robot's cell list, cells are reordered by greedy NN from start position.
+- **Final-strip-at-`r_max`** — `BoustrophedonDecomposer.generate_path` always appends a strip near `r_max` if the gap from the last regular strip > `coverage_width / 2`. Was the main cause of the "BCD only 92%" issue.
+- **+1 cell coverage paint slack** — `_cb_pose` paints with `radius + 1` cells so adjacent strips overlap. BCD now hits 95–97 %.
+- **Per-cell redundancy tracking** — `self._redundancy[r,c]` counts distinct-robot visits; published as `/coverage_redundancy`.
+- **Live ROS topics added:**
+  - `/set_algorithm` (String) — coordinator replans without restart
+  - `/set_speed` (Float64) — agents update `_speed` mid-run
+  - `/set_map` (String) — `map_server` loads new PGM file, `coordinator` resets and replans
+  - `/inject_failure` (String) — coordinator picks random active robot to fail
+  - `/reset_sim` (String) — revives failed robots, full re-plan
+  - `/coverage_redundancy` (OccupancyGrid) — per-cell visit count
+- **Robot revival** — `fail_trigger=False` now wakes a failed robot back to idle; empty Path also revives.
+- **Frontier sensor radius reduced** — `2.5 m → 0.4 m`. Frontier robots had to physically traverse cells to "explore" — fixes the ~20 % coverage issue.
+- **Random walk steps trimmed** — `10 000 → 1 500`. Was running ~17 minutes; now ends in 2–3.
+- **BFS-snapped, spread start positions** — robots no longer all crowd the bottom-left.
+- **Docker slimmed** — removed `xvfb / x11vnc / novnc / websockify / mesa` apt deps and entrypoint setup. Image is significantly smaller; container boots in seconds. Port 6080 removed from `docker-compose.yml`. **noVNC and RViz are gone — dashboard is the only UI.**
+
+### Dashboard (React)
+
+- **MapCanvas perf rewrite** — map render now goes to an **offscreen canvas** that's only rebuilt when `coverageMap` / `redundancyMap` data actually changes. The 60 fps loop just `drawImage`s the cache and renders the robot/path/trail layer on top. Removes ~40 000 ImageData writes per frame; sim feels smooth even at 5× speed.
+- **Smooth 60 fps pose interpolation** — internal `requestAnimationFrame` loop lerps each robot's `(x, y, yaw)` 18 % toward the latest received pose every frame.
+- **Trail/distance batching** — pose callbacks now buffer into refs; flushed to React state every 100 ms instead of every pose update. Stops React from re-rendering 60 ×/sec.
+- **Inject Failure throttle** — 2-second cooldown between clicks (rapid clicks were stacking failures before previous reallocation could finish).
+- **Reset Sim button** — publishes `/reset_sim`; revives failed robots, clears coverage, replans.
+- **Live map switching** — Map dropdown now publishes `/set_map`; coordinator handles the switch without restarting Docker.
+- **Heatmap overlay toggle** — visualises per-cell visit count: 0 (slate) → 1 (blue) → 2 (green) → 3 (amber) → 4+ (red). Legend swaps automatically when toggled.
+- **Chassis-style robot rendering** — rotated rounded-rect chassis with depth panel, white direction arrow, sensor dome, ID badge, red X on failure. No more circles.
+- **Refined cards** — gradient backgrounds, soft inner highlight, backdrop blur, better typography.
+- **Stats panel** — circular ring (turns green on completion), 6-cell metric grid (Algorithm/Speed/Elapsed/ETA/Active/Distance), per-robot status badges with proportional progress bars.
+- **CoverageChart bigger + responsive** — `ResizeObserver` makes it fill the sidebar width. Added gradient area fill, gradient ring, smarter tick density.
+- **Clean header** — geometric grid logo (no robot emoji), professional title, live agent count.
+- **ControlBar reorganised** — section labels (View / Speed / Algorithm / Map), better button states with shadows when active, Inject Failure + Reset Sim buttons at the right.
+- **Wider sidebar** — was capped at 300px (squished); now `flex-1 min-w-340` so it grows.
+
+### Files changed in this session
+
+```
+M  Dockerfile                                     # stripped VNC/Xvfb
+M  docker-compose.yml                             # removed port 6080, GL env vars
+M  docker/entrypoint.sh                           # no display setup
+M  multi_robot_coverage/.../algorithms/boustrophedon.py   # Hungarian + TSP + final-strip
+M  multi_robot_coverage/.../nodes/coverage_coordinator.py # inflated grid, densify, set_*, inject, reset
+M  multi_robot_coverage/.../nodes/map_server.py            # /set_map subscriber
+M  multi_robot_coverage/.../nodes/robot_agent.py           # teleport-once, sub-step, revive
+M  web_dashboard/src/App.jsx                      # all new handlers + buffered trails
+M  web_dashboard/src/components/ControlBar.jsx    # restructured
+M  web_dashboard/src/components/CoverageChart.jsx # responsive resize
+M  web_dashboard/src/components/MapCanvas.jsx    # offscreen cache + 60fps + heatmap
+M  web_dashboard/src/components/StatsPanel.jsx   # rebuilt
+M  web_dashboard/src/index.css                   # gradient cards
+```
+
+### Known remaining issues
+
+- **Failure recovery still looks slightly jittery** — the surviving robots get a brand-new path that includes any not-yet-finished cells from their original assignment plus the failed robot's leftovers. Visually the path overlay redraws abruptly. Real fix: per-robot task-queue model (cell-by-cell instead of one mega-path). Documented as future work in §2 / §13.
+- **Map dropdown switches map but old trails / distances briefly persist** — `handleMapChange` clears them on the dashboard but there's a frame or two of mismatch while the new `/coverage_map` arrives.
+
+### Concrete next-session task
+
+Pick up exactly where this left off. The very next thing to do is:
+
+1. `make web` — verify everything still works cleanly with these changes
+2. Run each algorithm for ~60 s, screenshot the chart, record the final coverage %
+3. Take 3 short screen recordings (BCD running / failure injection / algorithm comparison)
+4. Convert recordings → optimised GIFs via `ffmpeg`
+5. Write the recruiter-friendly README using §1.3 structure: Problem / Architecture / Algorithms / Results table / Demo / Setup / Future work
+6. Optional: implement headless benchmark mode (§1.1) so the README numbers come from a reproducible script
+7. `git push origin master` once it all looks good
