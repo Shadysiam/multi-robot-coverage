@@ -27,12 +27,26 @@ canvas { image-rendering: pixelated; }
 .glow-blue  { box-shadow: 0 0 20px rgba(59,130,246,0.15); }
 .glow-green { box-shadow: 0 0 20px rgba(34,197,94,0.15); }
 
-/* Stat card */
+/* Stat card — subtle gradient, soft border, gentle inner glow */
 .stat-card {
-  @apply bg-surface-800 border border-surface-600 rounded-xl p-4;
+  background: linear-gradient(180deg, rgba(31,41,55,0.6) 0%, rgba(17,24,39,0.6) 100%);
+  border: 1px solid rgba(55, 65, 81, 0.6);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.2);
+  backdrop-filter: blur(4px);
 }
 
 /* Badge */
 .badge {
-  @apply text-xs font-mono font-semibold px-2 py-0.5 rounded-full;
+  @apply text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full;
+  letter-spacing: 0.05em;
+}
+
+/* Subtle button hover scale */
+button {
+  transition: transform 0.06s ease, background-color 0.15s ease, color 0.15s ease;
+}
+button:active {
+  transform: scale(0.97);
 }

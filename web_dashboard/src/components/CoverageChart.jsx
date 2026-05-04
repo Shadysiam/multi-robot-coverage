@@ -1,87 +1,110 @@
+import { useRef, useEffect, useState } from 'react'
+
 /**
  * CoverageChart — live coverage % over time, SVG line chart.
  *
- * Props
- * -----
- * history   : [{t: number, pct: number}]   live data from current run
- * algorithm : string                         current algorithm name
+ * Auto-resizes to fill the parent container's width using a ResizeObserver.
+ * The chart adapts its scale and tick density based on width.
  */
 
-// Benchmark reference curves (pre-measured on obstacle_room 200×200, 3 robots)
-const BENCHMARKS = {
-  random_walk:           { color: '#ef4444', label: 'Random Walk'        },
-  simple_boustrophedon:  { color: '#f59e0b', label: 'Simple Lawnmower'  },
-  frontier:              { color: '#a855f7', label: 'Frontier'           },
-  boustrophedon:         { color: '#3b82f6', label: 'BCD (ours)'         },
-}
-
-const W = 260
-const H = 160
-const PAD = { top: 10, right: 10, bottom: 28, left: 34 }
-const INNER_W = W - PAD.left - PAD.right
-const INNER_H = H - PAD.top  - PAD.bottom
-
-function toPath(pts, maxT) {
-  if (pts.length === 0) return ''
-  return pts
-    .map((p, i) => {
-      const x = PAD.left + (p.t / maxT) * INNER_W
-      const y = PAD.top  + INNER_H - (p.pct / 100) * INNER_H
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
+const ALGO_STYLE = {
+  random_walk:           { color: '#ef4444', label: 'Random Walk'      },
+  simple_boustrophedon:  { color: '#f59e0b', label: 'Simple Lawnmower' },
+  frontier:              { color: '#a855f7', label: 'Frontier'         },
+  boustrophedon:         { color: '#3b82f6', label: 'BCD (ours)'       },
 }
 
 export default function CoverageChart({ history, algorithm }) {
-  const maxT   = Math.max(60, history.at(-1)?.t ?? 60)
-  const livePct = history.at(-1)?.pct ?? 0
-  const cfg     = BENCHMARKS[algorithm] ?? BENCHMARKS.boustrophedon
+  const wrapRef = useRef(null)
+  const [w, setW] = useState(320)
+  const H = 220
 
-  // Y-axis gridlines at 25, 50, 75, 100
+  useEffect(() => {
+    if (!wrapRef.current) return
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) {
+        setW(Math.max(240, Math.floor(e.contentRect.width)))
+      }
+    })
+    ro.observe(wrapRef.current)
+    return () => ro.disconnect()
+  }, [])
+
+  const PAD = { top: 14, right: 12, bottom: 30, left: 38 }
+  const innerW = w - PAD.left - PAD.right
+  const innerH = H - PAD.top  - PAD.bottom
+
+  const maxT    = Math.max(60, history.at(-1)?.t ?? 60)
+  const livePct = history.at(-1)?.pct ?? 0
+  const cfg     = ALGO_STYLE[algorithm] ?? ALGO_STYLE.boustrophedon
+
   const yTicks = [25, 50, 75, 100]
-  // X-axis ticks every 15s
-  const xTicks = Array.from({ length: Math.ceil(maxT / 15) + 1 }, (_, i) => i * 15)
+  const xTickStep = maxT > 180 ? 60 : maxT > 90 ? 30 : 15
+  const xTicks = []
+  for (let t = 0; t <= maxT + 0.01; t += xTickStep) xTicks.push(t)
+
+  const path = history.length === 0 ? '' : history
+    .map((p, i) => {
+      const x = PAD.left + (p.t / maxT) * innerW
+      const y = PAD.top  + innerH - (p.pct / 100) * innerH
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+
+  const area = history.length === 0 ? '' : (() => {
+    const baseY = PAD.top + innerH
+    const startX = PAD.left + (history[0].t / maxT) * innerW
+    const endX   = PAD.left + (history.at(-1).t / maxT) * innerW
+    return `M${startX},${baseY} ${path.replace(/^M/, 'L')} L${endX},${baseY} Z`
+  })()
 
   return (
-    <div className="stat-card flex flex-col gap-2">
+    <div className="stat-card flex flex-col gap-2" ref={wrapRef}>
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
+        <p className="text-[10px] text-slate-400 uppercase tracking-[0.15em] font-semibold">
           Coverage Over Time
         </p>
-        <span className="text-xs font-mono text-slate-400">
-          {livePct.toFixed(1)}% now
+        <span className="text-xs font-mono text-slate-300">
+          <span style={{ color: cfg.color }}>●</span> {livePct.toFixed(1)}%
         </span>
       </div>
 
-      <svg width={W} height={H} className="overflow-visible">
-        {/* Grid lines */}
+      <svg width={w} height={H} className="overflow-visible">
+        <defs>
+          <linearGradient id={`area-${algorithm}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor={cfg.color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={cfg.color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        {/* Y gridlines + labels */}
         {yTicks.map(pct => {
-          const y = PAD.top + INNER_H - (pct / 100) * INNER_H
+          const y = PAD.top + innerH - (pct / 100) * innerH
           return (
             <g key={pct}>
               <line
-                x1={PAD.left} y1={y} x2={PAD.left + INNER_W} y2={y}
-                stroke="#1f2937" strokeWidth="1"
+                x1={PAD.left} y1={y} x2={PAD.left + innerW} y2={y}
+                stroke="#1f2937" strokeWidth="1" strokeDasharray="3,3"
               />
-              <text x={PAD.left - 4} y={y + 4}
-                textAnchor="end" fill="#4b5563" fontSize="9" fontFamily="monospace">
+              <text x={PAD.left - 6} y={y + 3}
+                textAnchor="end" fill="#64748b" fontSize="10" fontFamily="monospace">
                 {pct}
               </text>
             </g>
           )
         })}
 
-        {/* X-axis ticks */}
+        {/* X tick labels */}
         {xTicks.map(t => {
-          const x = PAD.left + (t / maxT) * INNER_W
+          const x = PAD.left + (t / maxT) * innerW
           return (
             <g key={t}>
               <line
-                x1={x} y1={PAD.top} x2={x} y2={PAD.top + INNER_H}
-                stroke="#1f2937" strokeWidth="1"
+                x1={x} y1={PAD.top + innerH} x2={x} y2={PAD.top + innerH + 4}
+                stroke="#374151" strokeWidth="1"
               />
-              <text x={x} y={PAD.top + INNER_H + 10}
-                textAnchor="middle" fill="#4b5563" fontSize="9" fontFamily="monospace">
+              <text x={x} y={PAD.top + innerH + 14}
+                textAnchor="middle" fill="#64748b" fontSize="10" fontFamily="monospace">
                 {t}s
               </text>
             </g>
@@ -90,20 +113,23 @@ export default function CoverageChart({ history, algorithm }) {
 
         {/* Axes */}
         <line
-          x1={PAD.left} y1={PAD.top}
-          x2={PAD.left} y2={PAD.top + INNER_H}
+          x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + innerH}
           stroke="#374151" strokeWidth="1"
         />
         <line
-          x1={PAD.left} y1={PAD.top + INNER_H}
-          x2={PAD.left + INNER_W} y2={PAD.top + INNER_H}
+          x1={PAD.left} y1={PAD.top + innerH} x2={PAD.left + innerW} y2={PAD.top + innerH}
           stroke="#374151" strokeWidth="1"
         />
 
-        {/* Live data line */}
+        {/* Area fill */}
+        {history.length > 1 && (
+          <path d={area} fill={`url(#area-${algorithm})`} />
+        )}
+
+        {/* Line */}
         {history.length > 1 && (
           <path
-            d={toPath(history, maxT)}
+            d={path}
             fill="none"
             stroke={cfg.color}
             strokeWidth="2"
@@ -112,31 +138,36 @@ export default function CoverageChart({ history, algorithm }) {
           />
         )}
 
-        {/* Current endpoint dot */}
+        {/* Endpoint dot */}
         {history.length > 0 && (() => {
           const last = history.at(-1)
-          const x = PAD.left + (last.t / maxT) * INNER_W
-          const y = PAD.top  + INNER_H - (last.pct / 100) * INNER_H
-          return <circle cx={x} cy={y} r="3" fill={cfg.color} />
+          const x = PAD.left + (last.t / maxT) * innerW
+          const y = PAD.top  + innerH - (last.pct / 100) * innerH
+          return (
+            <>
+              <circle cx={x} cy={y} r="6" fill={cfg.color} fillOpacity="0.2" />
+              <circle cx={x} cy={y} r="3.5" fill={cfg.color} />
+            </>
+          )
         })()}
 
         {/* Y-axis label */}
         <text
-          x={10} y={PAD.top + INNER_H / 2}
+          x={11} y={PAD.top + innerH / 2}
           textAnchor="middle"
-          fill="#6b7280" fontSize="9" fontFamily="monospace"
-          transform={`rotate(-90, 10, ${PAD.top + INNER_H / 2})`}
+          fill="#64748b" fontSize="9" fontFamily="monospace" letterSpacing="1.5"
+          transform={`rotate(-90, 11, ${PAD.top + innerH / 2})`}
         >
-          coverage %
+          COVERAGE %
         </text>
       </svg>
 
       {/* Legend */}
-      <div className="flex items-center gap-2">
-        <div className="w-4 h-0.5 rounded" style={{ backgroundColor: cfg.color }} />
+      <div className="flex items-center gap-2 mt-1">
+        <div className="w-3 h-0.5 rounded" style={{ backgroundColor: cfg.color }} />
         <span className="text-xs font-mono text-slate-400">{cfg.label}</span>
         {history.length === 0 && (
-          <span className="text-xs text-slate-600 italic">waiting for data…</span>
+          <span className="text-xs text-slate-600 italic ml-auto">waiting for data…</span>
         )}
       </div>
     </div>

@@ -1,9 +1,8 @@
 /**
- * ControlBar — overlay toggles + live simulation controls
+ * ControlBar — overlay toggles + live simulation controls.
  *
- * Algorithm and speed changes publish directly to ROS topics:
- *   /set_algorithm  (std_msgs/String)   → coordinator replans immediately
- *   /set_speed      (std_msgs/Float64)  → robots update speed in real time
+ * All actions publish to ROS topics for live, no-restart control:
+ *   /set_algorithm    /set_speed    /set_map    /inject_failure    /reset_sim
  */
 export default function ControlBar({
   overlays, onToggle,
@@ -11,12 +10,14 @@ export default function ControlBar({
   mapName, onMapChange,
   algorithm, onAlgorithmChange,
   onInjectFailure,
+  onResetSim,
 }) {
   const OVERLAYS = [
-    { key: 'path',  label: 'Path'  },
-    { key: 'fov',   label: 'FOV'   },
-    { key: 'trail', label: 'Trail' },
-    { key: 'grid',  label: 'Grid'  },
+    { key: 'path',    label: 'Path'    },
+    { key: 'fov',     label: 'FOV'     },
+    { key: 'trail',   label: 'Trail'   },
+    { key: 'grid',    label: 'Grid'    },
+    { key: 'heatmap', label: 'Heatmap' },
   ]
 
   const SPEEDS = [
@@ -40,86 +41,108 @@ export default function ControlBar({
   ]
 
   return (
-    <div className="flex flex-wrap items-center gap-3 px-1">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 stat-card !p-3">
 
       {/* Overlay toggles */}
-      <div className="flex gap-1">
-        {OVERLAYS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => onToggle(key)}
-            className={`px-3 py-1 rounded-lg text-xs font-mono font-semibold transition-colors ${
-              overlays[key]
-                ? 'bg-blue-600 text-white'
-                : 'bg-surface-700 text-slate-400 hover:bg-surface-600'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="w-px h-4 bg-surface-600" />
-
-      {/* Speed — publishes /set_speed to robot agents */}
-      <div className="flex gap-1 items-center">
-        <span className="text-xs text-slate-500 font-mono mr-1">Speed</span>
-        {SPEEDS.map(({ label }) => (
-          <button
-            key={label}
-            onClick={() => onSpeed(label)}
-            className={`px-2 py-1 rounded-lg text-xs font-mono font-semibold transition-colors ${
-              speed === label
-                ? 'bg-green-600 text-white'
-                : 'bg-surface-700 text-slate-400 hover:bg-surface-600'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="w-px h-4 bg-surface-600" />
-
-      {/* Algorithm — publishes /set_algorithm, coordinator replans */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500 font-mono">Algorithm</span>
-        <select
-          value={algorithm}
-          onChange={e => onAlgorithmChange(e.target.value)}
-          className="bg-surface-700 text-slate-300 text-xs font-mono rounded-lg px-2 py-1 border border-surface-600 focus:outline-none cursor-pointer"
-        >
-          {ALGOS.map(a => (
-            <option key={a.value} value={a.value}>{a.label}</option>
+      <Section label="View">
+        <div className="flex gap-1">
+          {OVERLAYS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => onToggle(key)}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold ${
+                overlays[key]
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                  : 'bg-surface-700 text-slate-400 hover:bg-surface-600 hover:text-slate-200'
+              }`}
+            >
+              {label}
+            </button>
           ))}
-        </select>
-      </div>
+        </div>
+      </Section>
 
-      {/* Map — requires full restart */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500 font-mono">Map</span>
-        <select
-          value={mapName}
-          onChange={e => onMapChange(e.target.value)}
-          className="bg-surface-700 text-slate-300 text-xs font-mono rounded-lg px-2 py-1 border border-surface-600 focus:outline-none cursor-pointer"
-        >
-          {MAPS.map(m => (
-            <option key={m.value} value={m.value}>{m.label}</option>
+      <Divider />
+
+      {/* Speed */}
+      <Section label="Speed">
+        <div className="flex gap-1">
+          {SPEEDS.map(({ label }) => (
+            <button
+              key={label}
+              onClick={() => onSpeed(label)}
+              className={`w-9 px-1 py-1 rounded-md text-[11px] font-mono font-semibold ${
+                speed === label
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                  : 'bg-surface-700 text-slate-400 hover:bg-surface-600 hover:text-slate-200'
+              }`}
+            >
+              {label}
+            </button>
           ))}
-        </select>
-        <span className="text-xs text-slate-600 font-mono italic">(restart sim)</span>
-      </div>
+        </div>
+      </Section>
 
-      <div className="w-px h-4 bg-surface-600" />
+      <Divider />
 
-      {/* Failure injection — demonstrates propagation-based reallocation */}
+      {/* Algorithm */}
+      <Section label="Algorithm">
+        <Select value={algorithm} onChange={onAlgorithmChange} options={ALGOS} />
+      </Section>
+
+      {/* Map */}
+      <Section label="Map">
+        <Select value={mapName} onChange={onMapChange} options={MAPS} />
+      </Section>
+
+      <div className="flex-1" />
+
+      {/* Inject Failure */}
       <button
         onClick={onInjectFailure}
-        className="px-3 py-1 rounded-lg text-xs font-mono font-semibold bg-red-600/20 text-red-400 border border-red-600/40 hover:bg-red-600 hover:text-white transition-colors"
+        className="px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold bg-red-600/15 text-red-400 border border-red-600/30 hover:bg-red-600 hover:text-white"
         title="Kill a random active robot — surviving robots will reallocate the dead robot's cells (Gong et al. 2024 propagation method)"
       >
         ⚠ Inject Failure
       </button>
+
+      {/* Reset Sim */}
+      <button
+        onClick={onResetSim}
+        className="px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold bg-blue-600/15 text-blue-400 border border-blue-600/30 hover:bg-blue-600 hover:text-white"
+        title="Reset simulation: revive failed robots, clear coverage, replan from scratch"
+      >
+        ↺ Reset Sim
+      </button>
     </div>
+  )
+}
+
+function Section({ label, children }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-slate-500 uppercase tracking-[0.12em] font-semibold">
+        {label}
+      </span>
+      {children}
+    </div>
+  )
+}
+
+function Divider() {
+  return <div className="w-px h-5 bg-surface-600 self-center" />
+}
+
+function Select({ value, onChange, options }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="bg-surface-700 text-slate-300 text-[11px] font-mono rounded-md px-2 py-1 border border-surface-600 focus:outline-none focus:border-blue-500 cursor-pointer hover:bg-surface-600"
+    >
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
   )
 }

@@ -29,13 +29,14 @@ export default function App() {
   const { status, subscribe, publish } = useRos(ROSBRIDGE_URL)
 
   // ── Map / coverage data ────────────────────────────────────────────────────
-  const [baseMap,       setBaseMap]       = useState(null)
-  const [coverageMap,   setCoverageMap]   = useState(null)
-  const [robotPoses,    setRobotPoses]    = useState({})
-  const [robotStatuses, setRobotStatuses] = useState({})
-  const [robotPaths,    setRobotPaths]    = useState({})   // planned paths
-  const [stats,         setStats]         = useState(null)
-  const [numRobots,     setNumRobots]     = useState(DEFAULT_ROBOTS)
+  const [baseMap,        setBaseMap]        = useState(null)
+  const [coverageMap,    setCoverageMap]    = useState(null)
+  const [redundancyMap,  setRedundancyMap]  = useState(null)
+  const [robotPoses,     setRobotPoses]     = useState({})
+  const [robotStatuses,  setRobotStatuses]  = useState({})
+  const [robotPaths,     setRobotPaths]     = useState({})   // planned paths
+  const [stats,          setStats]          = useState(null)
+  const [numRobots,      setNumRobots]      = useState(DEFAULT_ROBOTS)
 
   // ── Robot trails (ring buffer per robot) ──────────────────────────────────
   const [robotTrails,    setRobotTrails]    = useState({})
@@ -47,7 +48,9 @@ export default function App() {
   const chartStartRef = useRef(null)
 
   // ── UI state ───────────────────────────────────────────────────────────────
-  const [overlays,   setOverlays]   = useState({ path: true, fov: true, trail: true, grid: false })
+  const [overlays,   setOverlays]   = useState({
+    path: true, fov: true, trail: true, grid: false, heatmap: false,
+  })
   const [speed,      setSpeed]      = useState('1×')
   const [mapName,    setMapName]    = useState('obstacle_room')
   const [algorithm,  setAlgorithm]  = useState('boustrophedon')
@@ -80,8 +83,38 @@ export default function App() {
   }, [publish])
 
   // ── Failure injection → coordinator picks a random active robot to kill ──
+  // Throttled to once every 2 seconds — rapid clicks were stacking failures
+  // before the previous reallocation could finish, producing weird paths.
+  const lastFailRef = useRef(0)
   const handleInjectFailure = useCallback(() => {
+    const now = Date.now()
+    if (now - lastFailRef.current < 2000) return
+    lastFailRef.current = now
     publish('/inject_failure', 'std_msgs/String', { data: 'auto' })
+  }, [publish])
+
+  // ── Map change → publish to /set_map, map_server loads new file ──────────
+  const handleMapChange = useCallback((newMap) => {
+    setMapName(newMap)
+    // Reset all per-run dashboard state
+    setCoverageHistory([])
+    setRobotTrails({})
+    setRobotDistances({})
+    setRobotPaths({})
+    prevPosRef.current = {}
+    chartStartRef.current = null
+    publish('/set_map', 'std_msgs/String', { data: newMap })
+  }, [publish])
+
+  // ── Reset Sim → revive failed robots + replan from scratch ───────────────
+  const handleResetSim = useCallback(() => {
+    setCoverageHistory([])
+    setRobotTrails({})
+    setRobotDistances({})
+    setRobotPaths({})
+    prevPosRef.current = {}
+    chartStartRef.current = null
+    publish('/reset_sim', 'std_msgs/String', { data: 'reset' })
   }, [publish])
 
   // ── Static map ─────────────────────────────────────────────────────────────
@@ -89,6 +122,9 @@ export default function App() {
 
   // ── Coverage map ───────────────────────────────────────────────────────────
   useEffect(() => subscribe('/coverage_map', 'nav_msgs/OccupancyGrid', setCoverageMap), [subscribe])
+
+  // ── Redundancy heatmap ─────────────────────────────────────────────────────
+  useEffect(() => subscribe('/coverage_redundancy', 'nav_msgs/OccupancyGrid', setRedundancyMap), [subscribe])
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   useEffect(() => subscribe(
@@ -116,6 +152,41 @@ export default function App() {
   ), [subscribe])
 
   // ── Per-robot subscriptions (pose, status, path) ──────────────────────────
+  // Trail/distance accumulators are batched in refs and flushed to state
+  // every 100 ms — this prevents React from re-rendering 60×/sec just to
+  // append a single trail point.
+  const trailBufRef    = useRef({})
+  const distAccumRef   = useRef({})
+
+  useEffect(() => {
+    const flushInterval = setInterval(() => {
+      if (Object.keys(trailBufRef.current).length > 0) {
+        setRobotTrails(prev => {
+          const next = { ...prev }
+          for (const id in trailBufRef.current) {
+            const incoming = trailBufRef.current[id]
+            const cur = next[id] || []
+            const merged = [...cur, ...incoming]
+            next[id] = merged.length > TRAIL_LENGTH ? merged.slice(-TRAIL_LENGTH) : merged
+          }
+          return next
+        })
+        trailBufRef.current = {}
+      }
+      if (Object.keys(distAccumRef.current).length > 0) {
+        setRobotDistances(prev => {
+          const next = { ...prev }
+          for (const id in distAccumRef.current) {
+            next[id] = (next[id] || 0) + distAccumRef.current[id]
+          }
+          return next
+        })
+        distAccumRef.current = {}
+      }
+    }, 100)
+    return () => clearInterval(flushInterval)
+  }, [])
+
   useEffect(() => {
     robotUnsubs.current.forEach(u => u())
     robotUnsubs.current = []
@@ -130,20 +201,18 @@ export default function App() {
 
           setRobotPoses(prev => ({ ...prev, [id]: msg }))
 
-          // Trail: append position, keep last TRAIL_LENGTH entries
-          setRobotTrails(prev => {
-            const trail = prev[id] || []
-            const next  = [...trail, [x, y]]
-            return { ...prev, [id]: next.length > TRAIL_LENGTH ? next.slice(-TRAIL_LENGTH) : next }
-          })
+          // Buffer trail/distance — flushed every 100 ms (see flushInterval)
+          if (!trailBufRef.current[id]) trailBufRef.current[id] = []
+          trailBufRef.current[id].push([x, y])
+          if (trailBufRef.current[id].length > 50) {
+            trailBufRef.current[id] = trailBufRef.current[id].slice(-50)
+          }
 
-          // Distance accumulation
-          const prev2 = prevPosRef.current[id]
-          if (prev2) {
-            const dx = x - prev2[0]
-            const dy = y - prev2[1]
-            const d  = Math.hypot(dx, dy)
-            setRobotDistances(prev => ({ ...prev, [id]: (prev[id] || 0) + d }))
+          const prev = prevPosRef.current[id]
+          if (prev) {
+            const dx = x - prev[0]
+            const dy = y - prev[1]
+            distAccumRef.current[id] = (distAccumRef.current[id] || 0) + Math.hypot(dx, dy)
           }
           prevPosRef.current[id] = [x, y]
         }
@@ -206,12 +275,12 @@ export default function App() {
       </header>
 
       {/* ── Main content ───────────────────────────────────────────────────── */}
-      <div className="flex flex-1 gap-4 p-4 overflow-hidden">
+      <div className="flex flex-1 gap-5 p-5 overflow-hidden">
 
         {/* Left: map + controls */}
-        <div className="flex flex-col gap-3 flex-shrink-0">
+        <div className="flex flex-col gap-3 flex-shrink-0" style={{ width: 600 }}>
           <div className="flex items-center justify-between">
-            <h2 className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
+            <h2 className="text-xs text-slate-400 uppercase tracking-[0.15em] font-semibold">
               Live Coverage Map
             </h2>
             {coverageMap && (
@@ -224,6 +293,7 @@ export default function App() {
           <MapCanvas
             baseMap={baseMap}
             coverageMap={coverageMap}
+            redundancyMap={redundancyMap}
             robotPoses={robotPoses}
             robotStatuses={robotStatuses}
             robotPaths={robotPaths}
@@ -237,24 +307,40 @@ export default function App() {
           <ControlBar
             overlays={overlays}     onToggle={handleToggle}
             speed={speed}           onSpeed={handleSpeed}
-            mapName={mapName}       onMapChange={setMapName}
+            mapName={mapName}       onMapChange={handleMapChange}
             algorithm={algorithm}   onAlgorithmChange={handleAlgorithmChange}
             onInjectFailure={handleInjectFailure}
+            onResetSim={handleResetSim}
           />
 
-          {/* Legend */}
-          <div className="flex items-center gap-4 px-1">
-            <LegendItem color="#1e293b" label="Free" />
-            <LegendItem color="#0f172a" label="Obstacle" border />
-            {Array.from({ length: numRobots }, (_, id) => (
-              <LegendItem key={id} color={robotColor(id).hex} label={`R${id} coverage`} />
-            ))}
+          {/* Legend — context-aware: shows heatmap key when heatmap is on */}
+          <div className="flex items-center flex-wrap gap-4 px-1">
+            {overlays.heatmap ? (
+              <>
+                <span className="text-[10px] text-slate-500 uppercase tracking-[0.15em] font-semibold mr-1">
+                  Visits per cell
+                </span>
+                <LegendItem color="#1e293b" label="0" />
+                <LegendItem color="#2563ef" label="1" />
+                <LegendItem color="#22c55e" label="2" />
+                <LegendItem color="#f59e0b" label="3" />
+                <LegendItem color="#ef4444" label="4+" />
+              </>
+            ) : (
+              <>
+                <LegendItem color="#1e293b" label="Free" />
+                <LegendItem color="#0b1120" label="Obstacle" border />
+                {Array.from({ length: numRobots }, (_, id) => (
+                  <LegendItem key={id} color={robotColor(id).hex} label={`R${id}`} />
+                ))}
+              </>
+            )}
           </div>
         </div>
 
-        {/* Right: stats sidebar */}
-        <div className="flex-1 min-w-[260px] max-w-[300px] flex flex-col gap-3 overflow-y-auto">
-          <h2 className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
+        {/* Right: stats sidebar — flex-grow, wider so nothing is squished */}
+        <div className="flex-1 min-w-[340px] flex flex-col gap-3 overflow-y-auto pr-1">
+          <h2 className="text-xs text-slate-400 uppercase tracking-[0.15em] font-semibold">
             Mission Stats
           </h2>
           <StatsPanel
