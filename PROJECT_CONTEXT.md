@@ -465,7 +465,6 @@ M  web_dashboard/src/index.css                   # gradient cards
 ### Known remaining issues
 
 - **Failure recovery still looks slightly jittery** — the surviving robots get a brand-new path that includes any not-yet-finished cells from their original assignment plus the failed robot's leftovers. Visually the path overlay redraws abruptly. Real fix: per-robot task-queue model (cell-by-cell instead of one mega-path). Documented as future work in §2 / §13.
-- **Map dropdown switches map but old trails / distances briefly persist** — `handleMapChange` clears them on the dashboard but there's a frame or two of mismatch while the new `/coverage_map` arrives.
 
 ### Concrete next-session task
 
@@ -478,3 +477,117 @@ Pick up exactly where this left off. The very next thing to do is:
 5. Write the recruiter-friendly README using §1.3 structure: Problem / Architecture / Algorithms / Results table / Demo / Setup / Future work
 6. Optional: implement headless benchmark mode (§1.1) so the README numbers come from a reproducible script
 7. `git push origin master` once it all looks good
+
+---
+
+## 14. Bug-hunt pass — May 2026 (post-benchmark dashboard polish)
+
+After the headless benchmark suite produced the first complete results (`make benchmark-native` → 12 JSON files, all 4 algorithms × 3 maps), a smoke-test of the live dashboard surfaced four bugs that had to be fixed before recording the demo video. All four are now resolved.
+
+### 14.1 Distance accumulator race — Robot 1 / Robot 2 distance stuck at 0.0 m
+
+**Symptom**
+On the dashboard's Robot Fleet panel, only Robot 0's distance progressed (occasionally — usually a tiny value like 0.7 m after a full minute of motion). Robots 1 and 2 sat at 0.0 m forever, with empty bars, even though the map showed them clearly moving.
+
+**Root cause**
+The pose subscriber accumulates per-tick distance into a `useRef` object (`distAccumRef.current`), which a 100 ms `setInterval` flushes into React state. The flush used the functional updater form of `setState`:
+
+```js
+setRobotDistances(prev => {
+  for (const id in distAccumRef.current) {        // ← read at commit time
+    next[id] = (next[id] || 0) + distAccumRef.current[id]
+  }
+  return next
+})
+distAccumRef.current = {}                         // ← runs synchronously *before* commit
+```
+
+In React 18, the lambda passed to `setState` is **invoked later during the commit phase**, not synchronously. The line `distAccumRef.current = {}` clears the ref *before* React ever calls the lambda — so the `for (const id in distAccumRef.current)` loop iterates over the now-empty object. Almost every flush silently lost its accumulated data. R0 occasionally caught a stray value when a new pose callback fired between queueing the setState and React running it.
+
+**Fix** ([`web_dashboard/src/App.jsx`](web_dashboard/src/App.jsx))
+
+Snapshot the ref into a local variable *before* clearing, so the updater closes over a stable snapshot instead of reading the live ref:
+
+```js
+const distSnap = distAccumRef.current
+distAccumRef.current = {}
+setRobotDistances(prev => {
+  const next = { ...prev }
+  for (const id in distSnap) {                    // ← stable snapshot
+    next[id] = (next[id] || 0) + distSnap[id]
+  }
+  return next
+})
+```
+
+Same pattern applied to the trail buffer. **All three robots now accumulate distance correctly.**
+
+### 14.2 Coverage chart kept extending after mission complete
+
+**Symptom**
+Once BCD hit 100 %, the curve flat-lined at the top — but the curve kept sliding right indefinitely as new stat messages arrived. The mission was over but the chart looked like it was still running.
+
+**Root cause (two-sided)**
+- *Coordinator side*: `_publish_stats` recomputed `elapsed_time = now - start_time` every 0.5 s, even after entering `_State.COMPLETE`. So every heartbeat carried a fresh, larger `elapsed_time`.
+- *Dashboard side*: the stats subscription appended every message to `coverageHistory` without checking `msg.completed`. The 400 ms dedup guard didn't trigger because `t` kept growing.
+
+**Fix** ([`coverage_coordinator.py`](multi_robot_coverage/multi_robot_coverage/nodes/coverage_coordinator.py), [`App.jsx`](web_dashboard/src/App.jsx))
+
+- Coordinator now snapshots `_complete_elapsed` the instant it transitions to `COMPLETE` and uses that frozen value for all subsequent stats publishes. `_reset_and_replan` clears `_complete_elapsed` so the next run starts a fresh clock.
+- Dashboard stats handler now stamps each history point with `completed: !!msg.completed` and refuses to append further points once the last entry is already marked completed.
+
+### 14.3 Algorithm-switch felt laggy / froze the sim visually
+
+**Symptom**
+Clicking a new algorithm in the dropdown caused a ~500 ms window where the dashboard looked frozen — old coverage cells stayed painted, robots stopped moving, then suddenly the new run jumped in.
+
+**Root cause (two-sided)**
+- *Coordinator side*: `_reset_and_replan` cleared `_coverage` internally but didn't *publish* the cleared coverage map. The next coverage publish happened after the planning step (which can take 200–500 ms for BCD). Until then, subscribers still held the previous coverage frame.
+- *Dashboard side*: the dropdown was bound to a React state that the `/coverage_stats` subscription would *override* on every message. During the replan window the coordinator still reported the previous algorithm, so the dropdown briefly flickered back to the old value — making the switch feel even worse.
+
+**Fix** ([`coverage_coordinator.py`](multi_robot_coverage/multi_robot_coverage/nodes/coverage_coordinator.py), [`App.jsx`](web_dashboard/src/App.jsx))
+
+- Coordinator's `_reset_and_replan` now calls `self._publish_coverage_map()` immediately after wiping `_coverage`. Subscribers see the blank frame within one ROS tick.
+- Dashboard's `handleAlgorithmChange` / `handleMapChange` / `handleResetSim` now also wipe local `coverageMap`, `redundancyMap`, and (for map change) `baseMap` so the canvas re-renders empty instantly without waiting for the coordinator round-trip.
+- Algorithm dropdown now syncs from `/coverage_stats` only on **first** message (gated by `algoInitRef`) — after that, user selection is the source of truth. No more flicker during replans.
+
+### 14.4 Per-robot bar math was unintuitive and clipped at 100 %
+
+**Symptom (indirect)**
+Even after fixing 14.1, the per-robot bars used a convoluted formula `(dist/totalDist) * pct * numRobots` that capped robots at 100 % whenever one happened to do most of the work. The math was opaque and the visual didn't communicate anything actionable.
+
+**Fix** ([`StatsPanel.jsx`](web_dashboard/src/components/StatsPanel.jsx))
+
+Replaced with the straightforward "this robot's distance ÷ busiest robot's distance × 100" — busiest robot is always full, others scale linearly. Honest, intuitive, never clips.
+
+### 14.5 Dead code cleanup
+
+The `covered` variable in `_publish_stats` summed the *values* of covered cells (each cell = `(robot_id + 1) * 10`) — a number nothing downstream consumed. Removed.
+
+### Files changed in this bug-hunt pass
+
+```
+M  multi_robot_coverage/.../nodes/coverage_coordinator.py
+    - new _complete_elapsed instance variable
+    - _publish_stats freezes elapsed time post-completion
+    - _reset_and_replan publishes blank coverage map immediately
+    - dropped dead `covered` variable
+M  web_dashboard/src/App.jsx
+    - flush interval snapshots accum refs before queueing setState
+    - stats handler tags history points with `completed` and gates dedup
+    - algorithm dropdown synced from stats only on first message
+    - handleAlgorithmChange / handleMapChange / handleResetSim clear coverage maps locally
+M  web_dashboard/src/components/StatsPanel.jsx
+    - per-robot bar uses dist / maxDist instead of convoluted proxyPct
+```
+
+### Verification
+
+- `pytest multi_robot_coverage/test/` → 47 passed in 3.46 s
+- `python -m py_compile` on both coordinator and agent → clean
+- Headless benchmark suite unchanged (algorithms layer untouched)
+- Dashboard rebuild + manual smoke test still pending — run `make web` and confirm:
+  - All three robots' distance bars now move during a run
+  - Coverage chart stops extending once the ring turns green
+  - Switching from BCD → Frontier instantly wipes the canvas (no ghost cells)
+  - Algorithm dropdown does not flicker back during the replan window
