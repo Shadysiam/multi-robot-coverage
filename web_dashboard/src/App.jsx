@@ -44,8 +44,13 @@ export default function App() {
   const prevPosRef = useRef({})   // {[id]: [x,y]} for distance calc
 
   // ── Coverage history for chart ─────────────────────────────────────────────
-  const [coverageHistory, setCoverageHistory] = useState([])  // [{t, pct}]
+  const [coverageHistory, setCoverageHistory] = useState([])  // [{t, pct, completed}]
   const chartStartRef = useRef(null)
+  // Sync the algorithm dropdown from /coverage_stats ONLY on the first
+  // message — after that the user's selection is the source of truth.
+  // Without this guard the dropdown flickers back to the old algorithm
+  // during the ~500 ms replan window, which felt like "switch lag."
+  const algoInitRef = useRef(false)
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [overlays,   setOverlays]   = useState({
@@ -63,13 +68,17 @@ export default function App() {
   }, [])
 
   // ── Algorithm change → publishes to /set_algorithm, coordinator replans ──
+  // Also wipes local visual state immediately — without this, the old
+  // painted coverage cells linger on screen for ~500 ms while the coordinator
+  // re-plans, which makes the switch feel like it froze the sim.
   const handleAlgorithmChange = useCallback((algo) => {
     setAlgorithm(algo)
-    // Reset all per-run state so the new algorithm starts clean
     setCoverageHistory([])
     setRobotTrails({})
     setRobotDistances({})
     setRobotPaths({})
+    setCoverageMap(null)
+    setRedundancyMap(null)
     prevPosRef.current = {}
     chartStartRef.current = null
     publish('/set_algorithm', 'std_msgs/String', { data: algo })
@@ -96,11 +105,13 @@ export default function App() {
   // ── Map change → publish to /set_map, map_server loads new file ──────────
   const handleMapChange = useCallback((newMap) => {
     setMapName(newMap)
-    // Reset all per-run dashboard state
     setCoverageHistory([])
     setRobotTrails({})
     setRobotDistances({})
     setRobotPaths({})
+    setCoverageMap(null)
+    setRedundancyMap(null)
+    setBaseMap(null)
     prevPosRef.current = {}
     chartStartRef.current = null
     publish('/set_map', 'std_msgs/String', { data: newMap })
@@ -112,6 +123,8 @@ export default function App() {
     setRobotTrails({})
     setRobotDistances({})
     setRobotPaths({})
+    setCoverageMap(null)
+    setRedundancyMap(null)
     prevPosRef.current = {}
     chartStartRef.current = null
     publish('/reset_sim', 'std_msgs/String', { data: 'reset' })
@@ -133,18 +146,39 @@ export default function App() {
     (msg) => {
       setStats(msg)
       if (msg.total_robots > 0) setNumRobots(msg.total_robots)
-      if (msg.algorithm) setAlgorithm(msg.algorithm)
+      // Only initialize the dropdown from the coordinator on first message;
+      // after that the user's local selection wins.
+      if (msg.algorithm && !algoInitRef.current) {
+        setAlgorithm(msg.algorithm)
+        algoInitRef.current = true
+      }
 
-      // Build coverage-over-time history
+      // Build coverage-over-time history.
+      // We stop extending the curve once the coordinator reports complete:
+      //   - First completion message → append the final point so the curve
+      //     terminates exactly at the completion time.
+      //   - Subsequent completion messages → ignore (the coordinator keeps
+      //     publishing heartbeats with growing elapsed_time but the mission
+      //     is over — the graph used to slide right indefinitely).
       const t   = msg.elapsed_time ?? 0
       const pct = msg.coverage_percentage ?? 0
       if (t > 0) {
         if (chartStartRef.current === null) chartStartRef.current = t
         setCoverageHistory(prev => {
-          // Avoid duplicate time entries; cap at 500 points
           const last = prev.at(-1)
+          // Drop heartbeats sent after completion if we already terminated
+          // the curve at a "completed" point.
+          if (msg.completed && last && last.completed) return prev
+          // Avoid duplicate time entries (within 400 ms)
           if (last && Math.abs(last.t - t) < 0.4) return prev
-          const next = [...prev, { t: parseFloat(t.toFixed(1)), pct: parseFloat(pct.toFixed(2)) }]
+          const next = [
+            ...prev,
+            {
+              t: parseFloat(t.toFixed(1)),
+              pct: parseFloat(pct.toFixed(2)),
+              completed: !!msg.completed,
+            },
+          ]
           return next.length > 500 ? next.slice(-500) : next
         })
       }
@@ -160,28 +194,36 @@ export default function App() {
 
   useEffect(() => {
     const flushInterval = setInterval(() => {
+      // CRITICAL: snapshot the ref into a local before swapping it out, so
+      // the functional setState updater (which React invokes *later* during
+      // commit) closes over the snapshot, not the now-emptied ref.  Without
+      // this snapshot React reads the cleared ref at commit time, silently
+      // losing every flush — that's the bug where Robot 1/2 distances stayed
+      // at 0.0 m while Robot 0 occasionally caught a stray value.
       if (Object.keys(trailBufRef.current).length > 0) {
+        const trailSnap = trailBufRef.current
+        trailBufRef.current = {}
         setRobotTrails(prev => {
           const next = { ...prev }
-          for (const id in trailBufRef.current) {
-            const incoming = trailBufRef.current[id]
+          for (const id in trailSnap) {
+            const incoming = trailSnap[id]
             const cur = next[id] || []
             const merged = [...cur, ...incoming]
             next[id] = merged.length > TRAIL_LENGTH ? merged.slice(-TRAIL_LENGTH) : merged
           }
           return next
         })
-        trailBufRef.current = {}
       }
       if (Object.keys(distAccumRef.current).length > 0) {
+        const distSnap = distAccumRef.current
+        distAccumRef.current = {}
         setRobotDistances(prev => {
           const next = { ...prev }
-          for (const id in distAccumRef.current) {
-            next[id] = (next[id] || 0) + distAccumRef.current[id]
+          for (const id in distSnap) {
+            next[id] = (next[id] || 0) + distSnap[id]
           }
           return next
         })
-        distAccumRef.current = {}
       }
     }, 100)
     return () => clearInterval(flushInterval)
@@ -353,6 +395,7 @@ export default function App() {
           <CoverageChart
             history={coverageHistory}
             algorithm={algorithm}
+            mapName={mapName}
           />
         </div>
       </div>

@@ -200,6 +200,9 @@ class CoverageCoordinatorNode(Node):
         self._failed_robots: set[int] = set()
         self._failure_triggered = False
         self._start_time: Optional[float] = None
+        # Elapsed time frozen at the instant we entered COMPLETE — prevents
+        # the dashboard chart from sliding right after the mission ended.
+        self._complete_elapsed: Optional[float] = None
         self._total_free: int = 0
 
         # Frontier-specific state
@@ -395,6 +398,7 @@ class CoverageCoordinatorNode(Node):
         self._failed_robots = set()
         self._failure_triggered = False
         self._start_time = None
+        self._complete_elapsed = None
         self._robot_statuses = {i: "idle" for i in range(self._n)}
         self._frontier_explorer = None
         self._claimed_frontiers = set()
@@ -404,6 +408,11 @@ class CoverageCoordinatorNode(Node):
             empty.header.stamp = self.get_clock().now().to_msg()
             empty.header.frame_id = "map"
             self._pub_waypoints[i].publish(empty)
+        # IMMEDIATELY publish the cleared coverage map so subscribers see the
+        # wipe right away — otherwise the dashboard sits on the old painted
+        # cells until the next RUNNING-state publish, which makes algorithm
+        # switches feel like they froze the sim.
+        self._publish_coverage_map()
         self._state = _State.PLANNING
 
     # ------------------------------------------------------------------
@@ -767,6 +776,11 @@ class CoverageCoordinatorNode(Node):
         # Check completion.
         if self._all_complete():
             self._state = _State.COMPLETE
+            # Freeze elapsed time at the moment of completion
+            if self._start_time is not None and self._complete_elapsed is None:
+                self._complete_elapsed = (
+                    self.get_clock().now().nanoseconds * 1e-9 - self._start_time
+                )
             self.get_logger().info("Coverage COMPLETE!")
 
     def _tick_running_with_failure_check(self) -> None:
@@ -938,16 +952,22 @@ class CoverageCoordinatorNode(Node):
     def _publish_stats(self, final: bool = False) -> None:
         if self._total_free == 0 or self._coverage is None:
             return
-        covered = int(np.sum(self._coverage[(self._coverage > 0) & (self._coverage < _OBSTACLE)]))
         covered_cells = int(
             np.sum(
                 (self._coverage > _UNCOVERED) & (self._coverage < _OBSTACLE)
             )
         )
         pct = 100.0 * covered_cells / self._total_free if self._total_free else 0.0
-        elapsed = 0.0
-        if self._start_time is not None:
+
+        # Elapsed time: freeze once the mission completes so downstream
+        # consumers (chart, ETA, etc.) don't see the clock keep advancing.
+        if self._complete_elapsed is not None:
+            elapsed = self._complete_elapsed
+        elif self._start_time is not None:
             elapsed = self.get_clock().now().nanoseconds * 1e-9 - self._start_time
+        else:
+            elapsed = 0.0
+
         active = sum(
             1
             for i in range(self._n)

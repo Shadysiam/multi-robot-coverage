@@ -81,8 +81,13 @@ export default function StatsPanel({ stats, numRobots, robotStatuses, robotDista
   const completed = stats?.completed           ?? false
 
   const algoLabel = ALGO_LABEL[algorithm] || algorithm
-  const totalDist = Object.values(robotDistances || {})
-    .reduce((a, b) => a + b, 0)
+  const distValues = Object.values(robotDistances || {})
+  const totalDist  = distValues.reduce((a, b) => a + b, 0)
+  // Bar fill = this robot's distance / busiest robot's distance.  Simple and
+  // honest — the busiest robot's bar is always full, others scale linearly.
+  // Previously the math was (dist/totalDist) * pct * numRobots which is
+  // unintuitive and capped weirdly when one robot did most of the work.
+  const maxDist = distValues.length ? Math.max(...distValues, 0) : 0
 
   // ETA: linear extrapolation from current rate
   const etaSec = (() => {
@@ -130,9 +135,7 @@ export default function StatsPanel({ stats, numRobots, robotStatuses, robotDista
             const color  = robotColor(id)
             const dist   = robotDistances?.[id] ?? 0
             const badge  = STATUS_BADGE[status] || STATUS_BADGE.idle
-            const proxyPct = totalDist > 0
-              ? (dist / totalDist) * 100 * (pct / 100) * numRobots
-              : 0
+            const barPct = maxDist > 0 ? (dist / maxDist) * 100 : 0
 
             return (
               <div key={id} className="flex flex-col gap-1.5">
@@ -145,7 +148,7 @@ export default function StatsPanel({ stats, numRobots, robotStatuses, robotDista
                   </span>
                 </div>
                 <div className="pl-5 flex items-center gap-2">
-                  <MiniBar pct={proxyPct} color={color.hex} />
+                  <MiniBar pct={barPct} color={color.hex} />
                   <span className="text-[10px] text-slate-500 font-mono w-12 text-right">
                     {dist.toFixed(1)}m
                   </span>
