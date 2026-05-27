@@ -64,6 +64,31 @@ services:
                pytest test/ -v --tb=short"
     profiles: ["test"]
 
+  # ── Headless benchmark runner ──────────────────────────────────────────────
+  # Runs the same algorithm classes the ROS2 coordinator uses, but in a plain
+  # Python loop — no ROS2 / Docker / dashboard required to reproduce numbers.
+  # JSON output lands in ./results/ on the host AND is copied into the
+  # dashboard's public/ dir so the live chart can overlay benchmark curves.
+  benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps
+    image: multi_robot_coverage:test
+    volumes:
+      - ./multi_robot_coverage:/coverage_ws/src/multi_robot_coverage
+      - ./results:/results
+      - ./web_dashboard/public:/dashboard_public
+    working_dir: /coverage_ws/src/multi_robot_coverage
+    environment:
+      - BENCH_ARGS=${BENCH_ARGS:-}
+    command: >
+      bash -c "python3 -m multi_robot_coverage.benchmark --output-dir /results $${BENCH_ARGS} &&
+               mkdir -p /dashboard_public/benchmarks &&
+               cp /results/*.json /dashboard_public/benchmarks/ &&
+               echo '✓ Benchmark results published to web_dashboard/public/benchmarks/'"
+    profiles: ["bench"]
+
 volumes:
   coverage_build:
   coverage_install:

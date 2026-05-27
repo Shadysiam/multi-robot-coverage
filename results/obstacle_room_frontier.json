@@ -1,0 +1,472 @@
+{
+  "map": "obstacle_room",
+  "algorithm": "frontier",
+  "num_robots": 3,
+  "robot_radius_m": 0.2,
+  "robot_speed_mps": 1.0,
+  "coverage_width_m": 0.4,
+  "map_resolution_m": 0.05,
+  "starts_grid": [
+    [
+      170,
+      50
+    ],
+    [
+      170,
+      100
+    ],
+    [
+      170,
+      150
+    ]
+  ],
+  "wall_time_s": 4.377,
+  "results": {
+    "coverage_curve": [
+      {
+        "t": 0.1,
+        "pct": 1.042,
+        "distance_m_total": 0.3,
+        "redundant_cells": 0
+      },
+      {
+        "t": 1.1,
+        "pct": 3.138,
+        "distance_m_total": 3.249,
+        "redundant_cells": 0
+      },
+      {
+        "t": 2.0,
+        "pct": 5.158,
+        "distance_m_total": 5.871,
+        "redundant_cells": 0
+      },
+      {
+        "t": 3.0,
+        "pct": 7.487,
+        "distance_m_total": 8.82,
+        "redundant_cells": 0
+      },
+      {
+        "t": 4.0,
+        "pct": 9.616,
+        "distance_m_total": 11.743,
+        "redundant_cells": 0
+      },
+      {
+        "t": 5.1,
+        "pct": 11.849,
+        "distance_m_total": 14.991,
+        "redundant_cells": 0
+      },
+      {
+        "t": 6.1,
+        "pct": 13.893,
+        "distance_m_total": 17.914,
+        "redundant_cells": 0
+      },
+      {
+        "t": 7.1,
+        "pct": 15.912,
+        "distance_m_total": 20.862,
+        "redundant_cells": 0
+      },
+      {
+        "t": 8.1,
+        "pct": 18.049,
+        "distance_m_total": 23.785,
+        "redundant_cells": 0
+      },
+      {
+        "t": 9.1,
+        "pct": 20.036,
+        "distance_m_total": 26.734,
+        "redundant_cells": 0
+      },
+      {
+        "t": 10.1,
+        "pct": 21.879,
+        "distance_m_total": 29.657,
+        "redundant_cells": 1
+      },
+      {
+        "t": 11.1,
+        "pct": 23.774,
+        "distance_m_total": 32.605,
+        "redundant_cells": 1
+      },
+      {
+        "t": 12.1,
+        "pct": 25.737,
+        "distance_m_total": 35.528,
+        "redundant_cells": 33
+      },
+      {
+        "t": 13.1,
+        "pct": 27.89,
+        "distance_m_total": 38.476,
+        "redundant_cells": 36
+      },
+      {
+        "t": 14.1,
+        "pct": 30.034,
+        "distance_m_total": 41.399,
+        "redundant_cells": 40
+      },
+      {
+        "t": 15.1,
+        "pct": 31.837,
+        "distance_m_total": 44.348,
+        "redundant_cells": 40
+      },
+      {
+        "t": 16.1,
+        "pct": 33.478,
+        "distance_m_total": 47.296,
+        "redundant_cells": 40
+      },
+      {
+        "t": 17.1,
+        "pct": 35.494,
+        "distance_m_total": 50.245,
+        "redundant_cells": 40
+      },
+      {
+        "t": 18.1,
+        "pct": 37.24,
+        "distance_m_total": 53.168,
+        "redundant_cells": 40
+      },
+      {
+        "t": 19.0,
+        "pct": 39.01,
+        "distance_m_total": 55.807,
+        "redundant_cells": 40
+      },
+      {
+        "t": 20.0,
+        "pct": 40.833,
+        "distance_m_total": 58.739,
+        "redundant_cells": 40
+      },
+      {
+        "t": 21.0,
+        "pct": 42.213,
+        "distance_m_total": 61.693,
+        "redundant_cells": 40
+      },
+      {
+        "t": 22.0,
+        "pct": 43.186,
+        "distance_m_total": 64.636,
+        "redundant_cells": 109
+      },
+      {
+        "t": 23.0,
+        "pct": 44.172,
+        "distance_m_total": 67.489,
+        "redundant_cells": 226
+      },
+      {
+        "t": 24.0,
+        "pct": 45.922,
+        "distance_m_total": 70.459,
+        "redundant_cells": 345
+      },
+      {
+        "t": 25.0,
+        "pct": 47.986,
+        "distance_m_total": 73.376,
+        "redundant_cells": 353
+      },
+      {
+        "t": 26.0,
+        "pct": 49.672,
+        "distance_m_total": 76.324,
+        "redundant_cells": 362
+      },
+      {
+        "t": 27.0,
+        "pct": 51.475,
+        "distance_m_total": 79.253,
+        "redundant_cells": 405
+      },
+      {
+        "t": 28.0,
+        "pct": 53.015,
+        "distance_m_total": 82.21,
+        "redundant_cells": 448
+      },
+      {
+        "t": 29.0,
+        "pct": 53.824,
+        "distance_m_total": 85.127,
+        "redundant_cells": 656
+      },
+      {
+        "t": 30.0,
+        "pct": 54.842,
+        "distance_m_total": 88.017,
+        "redundant_cells": 939
+      },
+      {
+        "t": 31.0,
+        "pct": 56.403,
+        "distance_m_total": 90.953,
+        "redundant_cells": 1022
+      },
+      {
+        "t": 32.0,
+        "pct": 57.341,
+        "distance_m_total": 93.936,
+        "redundant_cells": 1152
+      },
+      {
+        "t": 33.0,
+        "pct": 58.471,
+        "distance_m_total": 96.893,
+        "redundant_cells": 1313
+      },
+      {
+        "t": 34.0,
+        "pct": 59.875,
+        "distance_m_total": 99.859,
+        "redundant_cells": 1467
+      },
+      {
+        "t": 35.0,
+        "pct": 61.633,
+        "distance_m_total": 102.807,
+        "redundant_cells": 1571
+      },
+      {
+        "t": 36.0,
+        "pct": 63.689,
+        "distance_m_total": 105.724,
+        "redundant_cells": 1596
+      },
+      {
+        "t": 37.0,
+        "pct": 65.548,
+        "distance_m_total": 108.655,
+        "redundant_cells": 1630
+      },
+      {
+        "t": 38.0,
+        "pct": 67.491,
+        "distance_m_total": 111.587,
+        "redundant_cells": 1660
+      },
+      {
+        "t": 39.0,
+        "pct": 69.539,
+        "distance_m_total": 114.51,
+        "redundant_cells": 1690
+      },
+      {
+        "t": 40.0,
+        "pct": 71.149,
+        "distance_m_total": 117.449,
+        "redundant_cells": 1762
+      },
+      {
+        "t": 41.0,
+        "pct": 72.971,
+        "distance_m_total": 120.372,
+        "redundant_cells": 1813
+      },
+      {
+        "t": 42.0,
+        "pct": 74.774,
+        "distance_m_total": 123.329,
+        "redundant_cells": 1848
+      },
+      {
+        "t": 43.0,
+        "pct": 76.737,
+        "distance_m_total": 126.278,
+        "redundant_cells": 1889
+      },
+      {
+        "t": 44.0,
+        "pct": 78.511,
+        "distance_m_total": 129.244,
+        "redundant_cells": 1924
+      },
+      {
+        "t": 45.0,
+        "pct": 80.346,
+        "distance_m_total": 132.187,
+        "redundant_cells": 1977
+      },
+      {
+        "t": 46.0,
+        "pct": 81.666,
+        "distance_m_total": 135.136,
+        "redundant_cells": 2074
+      },
+      {
+        "t": 47.0,
+        "pct": 82.712,
+        "distance_m_total": 138.11,
+        "redundant_cells": 2341
+      },
+      {
+        "t": 48.0,
+        "pct": 84.603,
+        "distance_m_total": 141.093,
+        "redundant_cells": 2410
+      },
+      {
+        "t": 49.0,
+        "pct": 85.238,
+        "distance_m_total": 144.076,
+        "redundant_cells": 2633
+      },
+      {
+        "t": 50.0,
+        "pct": 85.934,
+        "distance_m_total": 147.067,
+        "redundant_cells": 2778
+      },
+      {
+        "t": 51.0,
+        "pct": 86.457,
+        "distance_m_total": 149.891,
+        "redundant_cells": 2975
+      },
+      {
+        "t": 52.0,
+        "pct": 86.735,
+        "distance_m_total": 152.861,
+        "redundant_cells": 3144
+      },
+      {
+        "t": 53.0,
+        "pct": 86.807,
+        "distance_m_total": 155.861,
+        "redundant_cells": 3412
+      },
+      {
+        "t": 54.0,
+        "pct": 87.23,
+        "distance_m_total": 158.861,
+        "redundant_cells": 3567
+      },
+      {
+        "t": 55.0,
+        "pct": 87.411,
+        "distance_m_total": 161.742,
+        "redundant_cells": 3815
+      },
+      {
+        "t": 56.0,
+        "pct": 87.443,
+        "distance_m_total": 164.742,
+        "redundant_cells": 3988
+      },
+      {
+        "t": 57.0,
+        "pct": 87.52,
+        "distance_m_total": 167.742,
+        "redundant_cells": 4156
+      },
+      {
+        "t": 58.0,
+        "pct": 88.236,
+        "distance_m_total": 170.738,
+        "redundant_cells": 4284
+      },
+      {
+        "t": 59.0,
+        "pct": 88.694,
+        "distance_m_total": 173.718,
+        "redundant_cells": 4481
+      },
+      {
+        "t": 60.0,
+        "pct": 88.839,
+        "distance_m_total": 176.708,
+        "redundant_cells": 4748
+      },
+      {
+        "t": 61.0,
+        "pct": 88.916,
+        "distance_m_total": 179.708,
+        "redundant_cells": 4925
+      },
+      {
+        "t": 62.0,
+        "pct": 89.028,
+        "distance_m_total": 182.708,
+        "redundant_cells": 4979
+      },
+      {
+        "t": 63.0,
+        "pct": 89.057,
+        "distance_m_total": 185.708,
+        "redundant_cells": 5261
+      },
+      {
+        "t": 64.0,
+        "pct": 89.29,
+        "distance_m_total": 188.708,
+        "redundant_cells": 5689
+      },
+      {
+        "t": 65.0,
+        "pct": 89.507,
+        "distance_m_total": 191.708,
+        "redundant_cells": 5929
+      },
+      {
+        "t": 66.0,
+        "pct": 89.628,
+        "distance_m_total": 194.708,
+        "redundant_cells": 6289
+      },
+      {
+        "t": 67.0,
+        "pct": 90.372,
+        "distance_m_total": 197.677,
+        "redundant_cells": 6409
+      },
+      {
+        "t": 68.0,
+        "pct": 91.39,
+        "distance_m_total": 200.652,
+        "redundant_cells": 6616
+      },
+      {
+        "t": 69.0,
+        "pct": 92.271,
+        "distance_m_total": 203.609,
+        "redundant_cells": 6868
+      },
+      {
+        "t": 70.0,
+        "pct": 92.919,
+        "distance_m_total": 206.464,
+        "redundant_cells": 7065
+      },
+      {
+        "t": 71.0,
+        "pct": 93.156,
+        "distance_m_total": 209.383,
+        "redundant_cells": 7193
+      }
+    ],
+    "final_coverage_pct": 93.221,
+    "completion_time_s": 71.7,
+    "total_distance_m_per_robot": {
+      "0": 70.325,
+      "1": 70.335,
+      "2": 70.426
+    },
+    "total_distance_m": 211.087,
+    "redundant_cells": 7294,
+    "redundancy_ratio": 0.2935,
+    "total_free_cells": 24855,
+    "covered_cells": 23170
+  }
+}

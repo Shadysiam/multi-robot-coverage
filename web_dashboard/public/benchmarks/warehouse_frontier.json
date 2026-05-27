@@ -1,0 +1,634 @@
+{
+  "map": "warehouse",
+  "algorithm": "frontier",
+  "num_robots": 3,
+  "robot_radius_m": 0.2,
+  "robot_speed_mps": 1.0,
+  "coverage_width_m": 0.4,
+  "map_resolution_m": 0.05,
+  "starts_grid": [
+    [
+      170,
+      75
+    ],
+    [
+      170,
+      150
+    ],
+    [
+      170,
+      225
+    ]
+  ],
+  "wall_time_s": 7.986,
+  "results": {
+    "coverage_curve": [
+      {
+        "t": 0.1,
+        "pct": 0.822,
+        "distance_m_total": 0.3,
+        "redundant_cells": 0
+      },
+      {
+        "t": 1.1,
+        "pct": 1.922,
+        "distance_m_total": 3.249,
+        "redundant_cells": 0
+      },
+      {
+        "t": 2.0,
+        "pct": 2.98,
+        "distance_m_total": 5.871,
+        "redundant_cells": 0
+      },
+      {
+        "t": 3.0,
+        "pct": 4.109,
+        "distance_m_total": 8.82,
+        "redundant_cells": 0
+      },
+      {
+        "t": 4.0,
+        "pct": 5.401,
+        "distance_m_total": 11.743,
+        "redundant_cells": 0
+      },
+      {
+        "t": 5.1,
+        "pct": 6.989,
+        "distance_m_total": 14.991,
+        "redundant_cells": 0
+      },
+      {
+        "t": 6.1,
+        "pct": 8.432,
+        "distance_m_total": 17.914,
+        "redundant_cells": 0
+      },
+      {
+        "t": 7.1,
+        "pct": 9.719,
+        "distance_m_total": 20.862,
+        "redundant_cells": 0
+      },
+      {
+        "t": 8.1,
+        "pct": 10.997,
+        "distance_m_total": 23.785,
+        "redundant_cells": 0
+      },
+      {
+        "t": 9.1,
+        "pct": 12.159,
+        "distance_m_total": 26.734,
+        "redundant_cells": 19
+      },
+      {
+        "t": 10.1,
+        "pct": 13.372,
+        "distance_m_total": 29.657,
+        "redundant_cells": 42
+      },
+      {
+        "t": 11.1,
+        "pct": 14.512,
+        "distance_m_total": 32.605,
+        "redundant_cells": 67
+      },
+      {
+        "t": 12.1,
+        "pct": 15.687,
+        "distance_m_total": 35.528,
+        "redundant_cells": 102
+      },
+      {
+        "t": 13.1,
+        "pct": 16.865,
+        "distance_m_total": 38.476,
+        "redundant_cells": 111
+      },
+      {
+        "t": 14.1,
+        "pct": 18.054,
+        "distance_m_total": 41.399,
+        "redundant_cells": 111
+      },
+      {
+        "t": 15.1,
+        "pct": 19.242,
+        "distance_m_total": 44.348,
+        "redundant_cells": 111
+      },
+      {
+        "t": 16.1,
+        "pct": 20.401,
+        "distance_m_total": 47.271,
+        "redundant_cells": 111
+      },
+      {
+        "t": 17.1,
+        "pct": 21.644,
+        "distance_m_total": 50.211,
+        "redundant_cells": 111
+      },
+      {
+        "t": 18.1,
+        "pct": 23.012,
+        "distance_m_total": 53.133,
+        "redundant_cells": 111
+      },
+      {
+        "t": 19.0,
+        "pct": 24.255,
+        "distance_m_total": 55.782,
+        "redundant_cells": 111
+      },
+      {
+        "t": 20.0,
+        "pct": 25.52,
+        "distance_m_total": 58.705,
+        "redundant_cells": 111
+      },
+      {
+        "t": 21.0,
+        "pct": 26.725,
+        "distance_m_total": 61.67,
+        "redundant_cells": 111
+      },
+      {
+        "t": 22.0,
+        "pct": 28.003,
+        "distance_m_total": 64.619,
+        "redundant_cells": 111
+      },
+      {
+        "t": 23.0,
+        "pct": 29.3,
+        "distance_m_total": 67.568,
+        "redundant_cells": 111
+      },
+      {
+        "t": 24.0,
+        "pct": 30.519,
+        "distance_m_total": 70.49,
+        "redundant_cells": 111
+      },
+      {
+        "t": 25.0,
+        "pct": 31.662,
+        "distance_m_total": 73.456,
+        "redundant_cells": 111
+      },
+      {
+        "t": 26.0,
+        "pct": 32.82,
+        "distance_m_total": 76.405,
+        "redundant_cells": 111
+      },
+      {
+        "t": 27.0,
+        "pct": 34.039,
+        "distance_m_total": 79.37,
+        "redundant_cells": 111
+      },
+      {
+        "t": 28.0,
+        "pct": 35.122,
+        "distance_m_total": 82.327,
+        "redundant_cells": 113
+      },
+      {
+        "t": 29.0,
+        "pct": 36.539,
+        "distance_m_total": 85.276,
+        "redundant_cells": 113
+      },
+      {
+        "t": 30.0,
+        "pct": 37.909,
+        "distance_m_total": 88.201,
+        "redundant_cells": 113
+      },
+      {
+        "t": 31.0,
+        "pct": 39.372,
+        "distance_m_total": 91.15,
+        "redundant_cells": 113
+      },
+      {
+        "t": 32.0,
+        "pct": 40.767,
+        "distance_m_total": 94.073,
+        "redundant_cells": 113
+      },
+      {
+        "t": 33.0,
+        "pct": 42.181,
+        "distance_m_total": 97.021,
+        "redundant_cells": 132
+      },
+      {
+        "t": 34.0,
+        "pct": 43.356,
+        "distance_m_total": 99.953,
+        "redundant_cells": 160
+      },
+      {
+        "t": 35.0,
+        "pct": 44.211,
+        "distance_m_total": 102.927,
+        "redundant_cells": 160
+      },
+      {
+        "t": 36.0,
+        "pct": 45.213,
+        "distance_m_total": 105.891,
+        "redundant_cells": 160
+      },
+      {
+        "t": 37.0,
+        "pct": 46.491,
+        "distance_m_total": 108.856,
+        "redundant_cells": 160
+      },
+      {
+        "t": 38.0,
+        "pct": 47.62,
+        "distance_m_total": 111.811,
+        "redundant_cells": 160
+      },
+      {
+        "t": 39.0,
+        "pct": 48.933,
+        "distance_m_total": 114.764,
+        "redundant_cells": 160
+      },
+      {
+        "t": 40.0,
+        "pct": 50.081,
+        "distance_m_total": 117.695,
+        "redundant_cells": 160
+      },
+      {
+        "t": 41.0,
+        "pct": 50.923,
+        "distance_m_total": 120.661,
+        "redundant_cells": 160
+      },
+      {
+        "t": 42.0,
+        "pct": 51.704,
+        "distance_m_total": 123.61,
+        "redundant_cells": 160
+      },
+      {
+        "t": 43.0,
+        "pct": 52.529,
+        "distance_m_total": 126.575,
+        "redundant_cells": 160
+      },
+      {
+        "t": 44.0,
+        "pct": 53.284,
+        "distance_m_total": 129.524,
+        "redundant_cells": 160
+      },
+      {
+        "t": 45.0,
+        "pct": 54.199,
+        "distance_m_total": 132.49,
+        "redundant_cells": 278
+      },
+      {
+        "t": 46.0,
+        "pct": 55.281,
+        "distance_m_total": 135.431,
+        "redundant_cells": 353
+      },
+      {
+        "t": 47.0,
+        "pct": 56.72,
+        "distance_m_total": 138.379,
+        "redundant_cells": 376
+      },
+      {
+        "t": 48.0,
+        "pct": 58.131,
+        "distance_m_total": 141.302,
+        "redundant_cells": 384
+      },
+      {
+        "t": 49.0,
+        "pct": 59.567,
+        "distance_m_total": 144.251,
+        "redundant_cells": 386
+      },
+      {
+        "t": 50.0,
+        "pct": 60.91,
+        "distance_m_total": 147.174,
+        "redundant_cells": 388
+      },
+      {
+        "t": 51.0,
+        "pct": 62.338,
+        "distance_m_total": 150.122,
+        "redundant_cells": 390
+      },
+      {
+        "t": 52.0,
+        "pct": 63.708,
+        "distance_m_total": 153.045,
+        "redundant_cells": 392
+      },
+      {
+        "t": 53.0,
+        "pct": 65.125,
+        "distance_m_total": 155.993,
+        "redundant_cells": 394
+      },
+      {
+        "t": 54.0,
+        "pct": 66.3,
+        "distance_m_total": 158.925,
+        "redundant_cells": 416
+      },
+      {
+        "t": 55.0,
+        "pct": 67.337,
+        "distance_m_total": 161.89,
+        "redundant_cells": 416
+      },
+      {
+        "t": 56.0,
+        "pct": 68.469,
+        "distance_m_total": 164.81,
+        "redundant_cells": 416
+      },
+      {
+        "t": 57.0,
+        "pct": 69.834,
+        "distance_m_total": 167.712,
+        "redundant_cells": 416
+      },
+      {
+        "t": 58.0,
+        "pct": 71.256,
+        "distance_m_total": 170.635,
+        "redundant_cells": 416
+      },
+      {
+        "t": 59.0,
+        "pct": 72.618,
+        "distance_m_total": 173.583,
+        "redundant_cells": 417
+      },
+      {
+        "t": 60.0,
+        "pct": 73.69,
+        "distance_m_total": 176.523,
+        "redundant_cells": 417
+      },
+      {
+        "t": 61.0,
+        "pct": 74.6,
+        "distance_m_total": 179.489,
+        "redundant_cells": 417
+      },
+      {
+        "t": 62.0,
+        "pct": 75.438,
+        "distance_m_total": 182.437,
+        "redundant_cells": 417
+      },
+      {
+        "t": 63.0,
+        "pct": 76.396,
+        "distance_m_total": 185.403,
+        "redundant_cells": 417
+      },
+      {
+        "t": 64.0,
+        "pct": 77.265,
+        "distance_m_total": 188.351,
+        "redundant_cells": 417
+      },
+      {
+        "t": 65.0,
+        "pct": 78.185,
+        "distance_m_total": 191.317,
+        "redundant_cells": 452
+      },
+      {
+        "t": 66.0,
+        "pct": 79.026,
+        "distance_m_total": 194.266,
+        "redundant_cells": 560
+      },
+      {
+        "t": 67.0,
+        "pct": 79.96,
+        "distance_m_total": 197.231,
+        "redundant_cells": 692
+      },
+      {
+        "t": 68.0,
+        "pct": 80.978,
+        "distance_m_total": 200.18,
+        "redundant_cells": 721
+      },
+      {
+        "t": 69.0,
+        "pct": 82.367,
+        "distance_m_total": 203.128,
+        "redundant_cells": 733
+      },
+      {
+        "t": 70.0,
+        "pct": 83.8,
+        "distance_m_total": 206.051,
+        "redundant_cells": 739
+      },
+      {
+        "t": 71.0,
+        "pct": 85.29,
+        "distance_m_total": 209.0,
+        "redundant_cells": 752
+      },
+      {
+        "t": 72.0,
+        "pct": 86.582,
+        "distance_m_total": 211.922,
+        "redundant_cells": 801
+      },
+      {
+        "t": 73.0,
+        "pct": 88.056,
+        "distance_m_total": 214.871,
+        "redundant_cells": 810
+      },
+      {
+        "t": 74.0,
+        "pct": 89.445,
+        "distance_m_total": 217.794,
+        "redundant_cells": 813
+      },
+      {
+        "t": 75.0,
+        "pct": 90.634,
+        "distance_m_total": 220.76,
+        "redundant_cells": 821
+      },
+      {
+        "t": 76.1,
+        "pct": 91.687,
+        "distance_m_total": 224.008,
+        "redundant_cells": 825
+      },
+      {
+        "t": 77.1,
+        "pct": 92.691,
+        "distance_m_total": 226.974,
+        "redundant_cells": 859
+      },
+      {
+        "t": 78.1,
+        "pct": 93.557,
+        "distance_m_total": 229.922,
+        "redundant_cells": 972
+      },
+      {
+        "t": 79.1,
+        "pct": 94.013,
+        "distance_m_total": 232.805,
+        "redundant_cells": 1239
+      },
+      {
+        "t": 80.1,
+        "pct": 94.086,
+        "distance_m_total": 235.805,
+        "redundant_cells": 1423
+      },
+      {
+        "t": 81.1,
+        "pct": 94.132,
+        "distance_m_total": 238.805,
+        "redundant_cells": 1574
+      },
+      {
+        "t": 82.1,
+        "pct": 94.132,
+        "distance_m_total": 241.805,
+        "redundant_cells": 1723
+      },
+      {
+        "t": 83.1,
+        "pct": 94.276,
+        "distance_m_total": 244.805,
+        "redundant_cells": 1806
+      },
+      {
+        "t": 84.1,
+        "pct": 94.276,
+        "distance_m_total": 247.805,
+        "redundant_cells": 1909
+      },
+      {
+        "t": 85.1,
+        "pct": 94.276,
+        "distance_m_total": 250.805,
+        "redundant_cells": 2054
+      },
+      {
+        "t": 86.1,
+        "pct": 94.276,
+        "distance_m_total": 253.805,
+        "redundant_cells": 2282
+      },
+      {
+        "t": 87.1,
+        "pct": 94.284,
+        "distance_m_total": 256.805,
+        "redundant_cells": 2628
+      },
+      {
+        "t": 88.1,
+        "pct": 94.298,
+        "distance_m_total": 259.805,
+        "redundant_cells": 2677
+      },
+      {
+        "t": 89.1,
+        "pct": 94.523,
+        "distance_m_total": 262.732,
+        "redundant_cells": 2677
+      },
+      {
+        "t": 90.1,
+        "pct": 94.925,
+        "distance_m_total": 265.732,
+        "redundant_cells": 2677
+      },
+      {
+        "t": 91.1,
+        "pct": 95.156,
+        "distance_m_total": 268.724,
+        "redundant_cells": 2677
+      },
+      {
+        "t": 92.1,
+        "pct": 95.156,
+        "distance_m_total": 271.724,
+        "redundant_cells": 2677
+      },
+      {
+        "t": 93.1,
+        "pct": 95.183,
+        "distance_m_total": 274.724,
+        "redundant_cells": 2758
+      },
+      {
+        "t": 94.1,
+        "pct": 95.199,
+        "distance_m_total": 277.724,
+        "redundant_cells": 2873
+      },
+      {
+        "t": 95.1,
+        "pct": 95.237,
+        "distance_m_total": 280.724,
+        "redundant_cells": 2993
+      },
+      {
+        "t": 96.1,
+        "pct": 95.291,
+        "distance_m_total": 283.724,
+        "redundant_cells": 3115
+      },
+      {
+        "t": 97.1,
+        "pct": 95.307,
+        "distance_m_total": 286.724,
+        "redundant_cells": 3296
+      },
+      {
+        "t": 98.1,
+        "pct": 95.367,
+        "distance_m_total": 289.724,
+        "redundant_cells": 3508
+      }
+    ],
+    "final_coverage_pct": 95.546,
+    "completion_time_s": 99.0,
+    "total_distance_m_per_robot": {
+      "0": 97.34,
+      "1": 97.543,
+      "2": 96.998
+    },
+    "total_distance_m": 291.881,
+    "redundant_cells": 3563,
+    "redundancy_ratio": 0.0967,
+    "total_free_cells": 36846,
+    "covered_cells": 35205
+  }
+}

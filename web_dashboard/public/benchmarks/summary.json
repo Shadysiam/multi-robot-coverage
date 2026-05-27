@@ -1,0 +1,98 @@
+[
+  {
+    "map": "simple_room",
+    "algorithm": "boustrophedon",
+    "coverage_pct": 100.0,
+    "completion_time_s": null,
+    "total_distance_m": 236.185,
+    "redundancy_ratio": 0.0049
+  },
+  {
+    "map": "simple_room",
+    "algorithm": "simple_boustrophedon",
+    "coverage_pct": 96.398,
+    "completion_time_s": 85.7,
+    "total_distance_m": 231.969,
+    "redundancy_ratio": 0.1314
+  },
+  {
+    "map": "simple_room",
+    "algorithm": "frontier",
+    "coverage_pct": 90.363,
+    "completion_time_s": 67.7,
+    "total_distance_m": 198.314,
+    "redundancy_ratio": 0.1067
+  },
+  {
+    "map": "simple_room",
+    "algorithm": "random_walk",
+    "coverage_pct": 92.072,
+    "completion_time_s": 179.0,
+    "total_distance_m": 527.458,
+    "redundancy_ratio": 0.5525
+  },
+  {
+    "map": "obstacle_room",
+    "algorithm": "boustrophedon",
+    "coverage_pct": 100.0,
+    "completion_time_s": 104.3,
+    "total_distance_m": 285.849,
+    "redundancy_ratio": 0.2201
+  },
+  {
+    "map": "obstacle_room",
+    "algorithm": "simple_boustrophedon",
+    "coverage_pct": 95.2,
+    "completion_time_s": 94.1,
+    "total_distance_m": 258.21,
+    "redundancy_ratio": 0.1582
+  },
+  {
+    "map": "obstacle_room",
+    "algorithm": "frontier",
+    "coverage_pct": 93.221,
+    "completion_time_s": 71.7,
+    "total_distance_m": 211.087,
+    "redundancy_ratio": 0.2935
+  },
+  {
+    "map": "obstacle_room",
+    "algorithm": "random_walk",
+    "coverage_pct": 94.005,
+    "completion_time_s": 174.4,
+    "total_distance_m": 518.511,
+    "redundancy_ratio": 0.5975
+  },
+  {
+    "map": "warehouse",
+    "algorithm": "boustrophedon",
+    "coverage_pct": 100.0,
+    "completion_time_s": 129.3,
+    "total_distance_m": 356.177,
+    "redundancy_ratio": 0.0697
+  },
+  {
+    "map": "warehouse",
+    "algorithm": "simple_boustrophedon",
+    "coverage_pct": 97.042,
+    "completion_time_s": 135.3,
+    "total_distance_m": 341.027,
+    "redundancy_ratio": 0.1471
+  },
+  {
+    "map": "warehouse",
+    "algorithm": "frontier",
+    "coverage_pct": 95.546,
+    "completion_time_s": 99.0,
+    "total_distance_m": 291.881,
+    "redundancy_ratio": 0.0967
+  },
+  {
+    "map": "warehouse",
+    "algorithm": "random_walk",
+    "coverage_pct": 57.298,
+    "completion_time_s": 173.2,
+    "total_distance_m": 512.298,
+    "redundancy_ratio": 0.2273
+  }
+]
