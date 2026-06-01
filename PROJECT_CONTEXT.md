@@ -564,6 +564,32 @@ Replaced with the straightforward "this robot's distance ÷ busiest robot's dist
 
 The `covered` variable in `_publish_stats` summed the *values* of covered cells (each cell = `(robot_id + 1) * 10`) — a number nothing downstream consumed. Removed.
 
+### 14.6 Frontier algorithm silently grinding to a halt in the live sim
+
+**Symptom**
+Frontier looked broken in the live dashboard — robots would move at first, then progressively stop getting new goals. After 30–60 s coverage would plateau well below the benchmark's 90–95 %.
+
+**Root cause (three bugs interacting)**
+The headless benchmark and the live coordinator implement frontier exploration with the same `FrontierExplorer` class but assemble the loop differently. The benchmark works. The coordinator did three things wrong:
+
+1. **`claimed_frontiers` accumulated forever.** The benchmark creates a fresh `claimed: set` on every replan cycle. The coordinator persisted `self._claimed_frontiers` across all ticks — every frontier ever assigned was added permanently. Over time `available = [f for f in frontiers if f not in claimed]` shrank to empty, and every robot got `None` back from `assign_frontiers`.
+
+2. **Replanning every 0.5 s tick** caused the same centroid to be repeatedly assigned to robots that hadn't reached the previous one yet, both wasting CPU and adding to the claim-accumulation problem. The benchmark replans every 2 s OR when a robot is idle.
+
+3. **Single-waypoint paths** (A\* result with `len == 1`) were dispatched as if they were real paths. The robot would instantly mark them complete (already at the only waypoint), the next tick would assign the same frontier again, the path would again be length 1 → instant complete. Robot oscillated between "idle" and "complete" without ever moving meaningfully.
+
+**Fix** ([`coverage_coordinator.py`](multi_robot_coverage/multi_robot_coverage/nodes/coverage_coordinator.py))
+
+- `_tick_frontier_assignment` now builds a fresh `claimed: set()` per call (matches the benchmark).
+- Replanning is throttled to once every 2 s OR when any robot is non-active. A new `force=True` parameter is used at initial planning so the first assignment happens immediately rather than waiting 2 s.
+- Single-waypoint A\* results (`len(path) < 2`) are skipped.
+- Failed robots are filtered out of assignment.
+- Deleted `self._claimed_frontiers` (replaced by per-call locals); added `self._frontier_last_replan_s` for throttling, reset in `_reset_and_replan`.
+
+**Verification**
+- 47 unit tests still pass.
+- Headless benchmark for `frontier` produces identical numbers: simple_room 90.4 %, obstacle_room 93.2 %, warehouse 95.5 % (the algorithm class itself wasn't touched, only how the coordinator drives it).
+
 ### Files changed in this bug-hunt pass
 
 ```

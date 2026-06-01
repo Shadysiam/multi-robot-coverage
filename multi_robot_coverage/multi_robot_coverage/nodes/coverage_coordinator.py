@@ -207,7 +207,10 @@ class CoverageCoordinatorNode(Node):
 
         # Frontier-specific state
         self._frontier_explorer: Optional[FrontierExplorer] = None
-        self._claimed_frontiers: set[tuple[int, int]] = set()
+        # Last time we ran a frontier replan, used to throttle to ~2 s like
+        # the benchmark does — replanning every 0.5 s tick accumulates churn
+        # and starves the actual motion ticks of CPU on busy maps.
+        self._frontier_last_replan_s: float = 0.0
 
         self._timer = self.create_timer(0.5, self._tick)
         self.get_logger().info(
@@ -401,7 +404,7 @@ class CoverageCoordinatorNode(Node):
         self._complete_elapsed = None
         self._robot_statuses = {i: "idle" for i in range(self._n)}
         self._frontier_explorer = None
-        self._claimed_frontiers = set()
+        self._frontier_last_replan_s = 0.0
         # Send empty paths to reset all robots to idle
         for i in range(self._n):
             empty = Path()
@@ -537,7 +540,9 @@ class CoverageCoordinatorNode(Node):
             self.get_logger().info(
                 f"Frontier: robot {i} starts at grid ({r},{c})"
             )
-        self._tick_frontier_assignment()
+        # Force the first assignment so robots start moving immediately.
+        self._frontier_last_replan_s = 0.0
+        self._tick_frontier_assignment(force=True)
 
     # ------------------------------------------------------------------
     # Boustrophedon helpers
@@ -721,11 +726,34 @@ class CoverageCoordinatorNode(Node):
     # Frontier-specific tick (called every timer tick while running)
     # ------------------------------------------------------------------
 
-    def _tick_frontier_assignment(self) -> None:
+    def _tick_frontier_assignment(self, force: bool = False) -> None:
+        """Reveal around current robot positions and reassign frontiers.
+
+        Replanning is throttled to once every ~2 s OR whenever any robot is
+        non-active (idle/complete and ready for a new goal), matching the
+        benchmark simulator's loop.  Replanning every 0.5 s tick was both
+        wasteful and caused subtle churn because the same centroid kept
+        getting reassigned to robots that hadn't reached it yet.
+        """
         if self._frontier_explorer is None or self._grid is None:
             return
 
-        # Update sensor reveals from all current robot positions.
+        now_s = self.get_clock().now().nanoseconds * 1e-9
+        non_active_present = any(
+            self._robot_statuses.get(i) not in ("active", "failed")
+            for i in range(self._n)
+            if i not in self._failed_robots
+        )
+        if not (
+            force
+            or non_active_present
+            or now_s - self._frontier_last_replan_s >= 2.0
+        ):
+            return
+        self._frontier_last_replan_s = now_s
+
+        # Update sensor reveals from all current robot positions
+        # (failed robots' stale poses are still valid — they don't move).
         grid_poses = [
             self._world_to_grid(*self._robot_poses.get(i, (0.0, 0.0)))
             for i in range(self._n)
@@ -733,26 +761,40 @@ class CoverageCoordinatorNode(Node):
         self._frontier_explorer.reveal(grid_poses)
 
         centroids = self._frontier_explorer.find_frontier_centroids()
+        if not centroids:
+            return  # nothing left to explore — coverage tick will catch up
+
+        # CRITICAL: use a fresh `claimed` set per replan cycle.  Persisting
+        # the set across ticks (the old behaviour) accumulated every frontier
+        # ever assigned, until `available` was empty and robots could no
+        # longer be assigned anything — frontier silently ground to a halt
+        # after 30-60 s, which looked like the algorithm was broken.  The
+        # headless benchmark gets this right, the coordinator didn't.
+        claimed: set[tuple[int, int]] = set()
         assignments = FrontierExplorer.assign_frontiers(
-            centroids, grid_poses, self._claimed_frontiers
+            centroids, grid_poses, claimed
         )
 
+        planner = AStar()
         for robot_id, frontier in assignments.items():
             if frontier is None:
                 continue
-            if self._robot_statuses.get(robot_id) in ("active",):
+            if robot_id in self._failed_robots:
+                continue
+            if self._robot_statuses.get(robot_id) == "active":
                 continue  # robot still working on previous goal
-            planner = AStar()
-            inflation = 0   # grid is pre-inflated in _cb_map
             current_grid = self._world_to_grid(
                 *self._robot_poses.get(robot_id, (0.0, 0.0))
             )
             path = planner.search(
-                self._grid, current_grid, frontier, inflation_radius=inflation
+                self._grid, current_grid, frontier, inflation_radius=0
             )
-            if path:
-                world_poses = [self._grid_to_world(*p) for p in path]
-                self._send_waypoints(robot_id, world_poses)
+            # Skip trivial/no-op paths — a single-waypoint path makes the
+            # robot complete instantly and starves the next replan window.
+            if not path or len(path) < 2:
+                continue
+            world_poses = [self._grid_to_world(*p) for p in path]
+            self._send_waypoints(robot_id, world_poses)
 
     # ------------------------------------------------------------------
     # Running tick
