@@ -262,21 +262,36 @@ function drawFrame(canvas, offscreen, props, robotsLerp) {
       }
     }
 
-    // Planned path
-    if (overlays?.path) {
+    // Planned path — drawn in two passes (dark outline + bright colour on
+    // top) so the dashed line stays visible against ANY background, including
+    // the bright green coverage paint that previously washed it out.  Skip
+    // entirely for failed robots — the old cached path is stale once the
+    // coordinator reassigns its cells, and showing a red dashed plan next
+    // to an X-marked robot read as "the dead robot is still planned to go
+    // here," which is wrong.
+    if (overlays?.path && !failed) {
       const path = robotPaths?.[id]
       if (path?.poses?.length > 1) {
+        // Build the path once; stroke it twice (outline + colour).
         ctx.beginPath()
         const p0 = w2c(path.poses[0].pose.position.x, path.poses[0].pose.position.y)
         ctx.moveTo(p0.cx, p0.cy)
-        const stride = Math.max(1, Math.floor(path.poses.length / 200))
+        // Sample ~300 points for better corner fidelity (was 200).
+        const stride = Math.max(1, Math.floor(path.poses.length / 300))
         for (let i = stride; i < path.poses.length; i += stride) {
           const p = w2c(path.poses[i].pose.position.x, path.poses[i].pose.position.y)
           ctx.lineTo(p.cx, p.cy)
         }
-        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.32)`
-        ctx.lineWidth   = 1
-        ctx.setLineDash([3, 4])
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.setLineDash([6, 4])
+        // Pass 1: dark halo for contrast on bright backgrounds
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)'
+        ctx.lineWidth   = 3.5
+        ctx.stroke()
+        // Pass 2: bright coloured dashes on top
+        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.95)`
+        ctx.lineWidth   = 1.8
         ctx.stroke()
         ctx.setLineDash([])
       }
