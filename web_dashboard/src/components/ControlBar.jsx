@@ -1,16 +1,17 @@
 /**
  * ControlBar — overlay toggles + live simulation controls.
  *
+ * Inject Failure and Reset Sim used to live here; they were promoted
+ * to the header to guarantee visibility on any viewport.
+ *
  * All actions publish to ROS topics for live, no-restart control:
- *   /set_algorithm    /set_speed    /set_map    /inject_failure    /reset_sim
+ *   /set_algorithm    /set_speed    /set_map
  */
 export default function ControlBar({
   overlays, onToggle,
   speed, onSpeed,
   mapName, onMapChange,
   algorithm, onAlgorithmChange,
-  onInjectFailure,
-  onResetSim,
 }) {
   const OVERLAYS = [
     { key: 'path',    label: 'Path'    },
@@ -95,29 +96,6 @@ export default function ControlBar({
         <Select value={mapName} onChange={onMapChange} options={MAPS} />
       </Section>
 
-      {/* Action buttons grouped so they never wrap separately and stay
-          visible even when the control bar is squeezed. Shorter labels
-          ("Fail" / "Reset") keep both fully visible at typical sidebar
-          widths — the previous "Inject Failure" + "Reset Sim" combo
-          pushed Reset off the end of the row. */}
-      <Section label="Actions">
-        <div className="flex gap-1.5">
-          <button
-            onClick={onInjectFailure}
-            className="px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold bg-red-600/15 text-red-400 border border-red-600/30 hover:bg-red-600 hover:text-white whitespace-nowrap"
-            title="Kill a random active robot — surviving robots will reallocate the dead robot's cells (Gong et al. 2024 propagation method)"
-          >
-            ⚠ Fail
-          </button>
-          <button
-            onClick={onResetSim}
-            className="px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold bg-blue-600/15 text-blue-400 border border-blue-600/30 hover:bg-blue-600 hover:text-white whitespace-nowrap"
-            title="Reset simulation: revive failed robots, clear coverage, replan from scratch"
-          >
-            ↺ Reset
-          </button>
-        </div>
-      </Section>
     </div>
   )
 }

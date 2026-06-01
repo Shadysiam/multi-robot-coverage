@@ -312,6 +312,23 @@ export default function App() {
               </div>
             ))}
           </div>
+          {/* Global sim actions — moved here from the ControlBar so they
+              can never be clipped off the bottom of the map column on
+              short viewports. Stays visible regardless of scroll state. */}
+          <button
+            onClick={handleInjectFailure}
+            className="px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold bg-red-600/15 text-red-400 border border-red-600/30 hover:bg-red-600 hover:text-white whitespace-nowrap"
+            title="Kill a random active robot — surviving robots will reallocate the dead robot's cells (Gong et al. 2024 propagation method)"
+          >
+            ⚠ Inject Failure
+          </button>
+          <button
+            onClick={handleResetSim}
+            className="px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold bg-blue-600/15 text-blue-400 border border-blue-600/30 hover:bg-blue-600 hover:text-white whitespace-nowrap"
+            title="Reset simulation: revive failed robots, clear coverage, replan from scratch"
+          >
+            ↺ Reset Sim
+          </button>
           <StatusPill status={status} />
         </div>
       </header>
@@ -319,8 +336,11 @@ export default function App() {
       {/* ── Main content ───────────────────────────────────────────────────── */}
       <div className="flex flex-1 gap-5 p-5 overflow-hidden">
 
-        {/* Left: map + controls */}
-        <div className="flex flex-col gap-3 flex-shrink-0" style={{ width: 600 }}>
+        {/* Left: map + controls. min-h-0 + overflow-y-auto is a defensive
+            scroll in case the map column ever exceeds viewport height —
+            otherwise content at the bottom (controls, legend) gets
+            clipped because the parent uses overflow-hidden. */}
+        <div className="flex flex-col gap-3 flex-shrink-0 min-h-0 overflow-y-auto pr-1" style={{ width: 600 }}>
           <div className="flex items-center justify-between">
             <h2 className="text-xs text-slate-400 uppercase tracking-[0.15em] font-semibold">
               Live Coverage Map
@@ -345,14 +365,12 @@ export default function App() {
             sensorRadius={0.5}
           />
 
-          {/* Overlay + controls bar */}
+          {/* Overlay + controls bar — action buttons live in the header */}
           <ControlBar
             overlays={overlays}     onToggle={handleToggle}
             speed={speed}           onSpeed={handleSpeed}
             mapName={mapName}       onMapChange={handleMapChange}
             algorithm={algorithm}   onAlgorithmChange={handleAlgorithmChange}
-            onInjectFailure={handleInjectFailure}
-            onResetSim={handleResetSim}
           />
 
           {/* Legend — context-aware: shows heatmap key when heatmap is on */}

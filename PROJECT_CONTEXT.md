@@ -608,6 +608,38 @@ With playback speed at 5×, the live coverage curve hit 100 % around the 20 s ma
 
 The dashboard displays `formatTime(elapsed)` straight from the message — no client-side change needed. The live curve and benchmark overlay are now on the same axis.
 
+### 14.8 Frontier still produced ≲1 % live coverage even after 14.6
+
+**Symptom**
+After the §14.6 fixes (fresh `claimed` set, 2 s replan throttle, no-op-path skip) the live dashboard showed frontier still grinding to a halt with under 1 % coverage. The headless benchmark continued to hit 90–95 % on every map.
+
+**Root cause**
+§14.6 throttled `_tick_frontier_assignment` to run every ~2 s — but the **reveal step lived inside that function**. So the known map only grew every 2 s rather than every tick. The reveal increment per call is small (one ring of cells per robot pose), so a 4× slowdown of reveal cadence meant the explored area barely escaped the initial sensor bubble before robots finished their first frontier assignment and `find_frontier_centroids` started returning sparse results that the min-cluster threshold of 3 then dropped to zero. Coverage flatlined.
+
+**Fix** ([`coverage_coordinator.py`](multi_robot_coverage/multi_robot_coverage/nodes/coverage_coordinator.py))
+
+- Split `_tick_frontier_assignment` into two functions:
+  - `_frontier_reveal_now()` — pure reveal, called every 0.5 s tick when state is RUNNING and algorithm is `frontier`.
+  - `_tick_frontier_assignment()` — centroid detection + A\* + dispatch, still throttled to 2 s OR on non-active.
+- Lowered `min_cluster_size` from 3 → 1 so fragmented clusters at the start of a run get assigned rather than dropped.
+- New `_cb_status` shortcut: the instant a frontier robot reports `complete`, force an immediate `_tick_frontier_assignment(force=True)` so it gets a new goal within the same ROS callback (no 0.5 s wait for the next tick).
+- Added logging: every dispatch and every empty-centroid event prints to ROS console, so future regressions are diagnosable from `docker logs coverage_sim`.
+
+**Verification**
+- 47 unit tests still pass.
+- Headless benchmark for frontier produces identical numbers (algorithm class untouched).
+
+### 14.9 Action buttons clipped at the bottom of narrow viewports
+
+**Symptom**
+"Inject Failure" and "Reset Sim" sat at the bottom of the ControlBar, which lives inside the left (map) column. On shorter viewports the map + control bar + legend exceeded the column height, and because the parent uses `overflow-hidden`, the buttons disappeared off the bottom with no scroll affordance.
+
+**Fix** ([`App.jsx`](web_dashboard/src/App.jsx), [`ControlBar.jsx`](web_dashboard/src/components/ControlBar.jsx))
+
+- Promoted both buttons to the header, next to the connection status pill. They are now *globally* visible regardless of left-column overflow, which is the right conceptual home for "sim-level actions" anyway (vs. view-level toggles like Path / FOV).
+- Defensive `overflow-y-auto min-h-0` on the left column so any future tall content can still scroll inside the map area.
+- ControlBar simplified — no longer takes `onInjectFailure` / `onResetSim` props.
+
 ### Files changed in this bug-hunt pass
 
 ```
