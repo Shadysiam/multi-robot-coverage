@@ -107,6 +107,11 @@ class RobotAgentNode(Node):
         self._sub_speed = self.create_subscription(
             Float64, '/set_speed', self._cb_set_speed, 10
         )
+        # Pause control — when True, _step() returns early without advancing
+        self._sub_paused = self.create_subscription(
+            Bool, '/set_paused', self._cb_set_paused, 10
+        )
+        self._is_paused: bool = False
 
         # TF broadcaster for RViz visualisation.
         self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -202,6 +207,10 @@ class RobotAgentNode(Node):
         new_speed = max(0.1, min(10.0, float(msg.data)))
         self._speed = new_speed
 
+    def _cb_set_paused(self, msg: Bool) -> None:
+        """Toggle pause state for this robot."""
+        self._is_paused = bool(msg.data)
+
     # ------------------------------------------------------------------
     # Control loop
     # ------------------------------------------------------------------
@@ -216,6 +225,12 @@ class RobotAgentNode(Node):
         playback speeds.
         """
         if self._status != self._STATUS_ACTIVE:
+            self._publish_pose()
+            return
+
+        # When paused, still publish pose so the dashboard keeps its
+        # subscription alive, but don't advance the waypoint cursor.
+        if self._is_paused:
             self._publish_pose()
             return
 

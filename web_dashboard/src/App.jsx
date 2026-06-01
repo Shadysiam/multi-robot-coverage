@@ -59,6 +59,7 @@ export default function App() {
   const [speed,      setSpeed]      = useState('1×')
   const [mapName,    setMapName]    = useState('obstacle_room')
   const [algorithm,  setAlgorithm]  = useState('boustrophedon')
+  const [isPaused,   setIsPaused]   = useState(false)
 
   const robotUnsubs = useRef([])
 
@@ -81,8 +82,13 @@ export default function App() {
     setRedundancyMap(null)
     prevPosRef.current = {}
     chartStartRef.current = null
+    // If the sim is paused, resume it so the new algorithm actually runs
+    if (isPaused) {
+      setIsPaused(false)
+      publish('/set_paused', 'std_msgs/Bool', { data: false })
+    }
     publish('/set_algorithm', 'std_msgs/String', { data: algo })
-  }, [publish])
+  }, [publish, isPaused])
 
   // ── Speed change → publishes to /set_speed, robot agents update live ─────
   const handleSpeed = useCallback((label) => {
@@ -102,6 +108,17 @@ export default function App() {
     publish('/inject_failure', 'std_msgs/String', { data: 'auto' })
   }, [publish])
 
+  // ── Pause toggle → freezes robots + sim-time integration on the
+  //    coordinator side, so the chart axis stops advancing.  Useful for
+  //    narrated demo recordings where you want to stop on a specific frame.
+  const handleTogglePause = useCallback(() => {
+    setIsPaused(prev => {
+      const next = !prev
+      publish('/set_paused', 'std_msgs/Bool', { data: next })
+      return next
+    })
+  }, [publish])
+
   // ── Map change → publish to /set_map, map_server loads new file ──────────
   const handleMapChange = useCallback((newMap) => {
     setMapName(newMap)
@@ -114,8 +131,12 @@ export default function App() {
     setBaseMap(null)
     prevPosRef.current = {}
     chartStartRef.current = null
+    if (isPaused) {
+      setIsPaused(false)
+      publish('/set_paused', 'std_msgs/Bool', { data: false })
+    }
     publish('/set_map', 'std_msgs/String', { data: newMap })
-  }, [publish])
+  }, [publish, isPaused])
 
   // ── Reset Sim → revive failed robots + replan from scratch ───────────────
   const handleResetSim = useCallback(() => {
@@ -127,8 +148,12 @@ export default function App() {
     setRedundancyMap(null)
     prevPosRef.current = {}
     chartStartRef.current = null
+    if (isPaused) {
+      setIsPaused(false)
+      publish('/set_paused', 'std_msgs/Bool', { data: false })
+    }
     publish('/reset_sim', 'std_msgs/String', { data: 'reset' })
-  }, [publish])
+  }, [publish, isPaused])
 
   // ── Static map ─────────────────────────────────────────────────────────────
   useEffect(() => subscribe('/map', 'nav_msgs/OccupancyGrid', setBaseMap), [subscribe])
@@ -319,6 +344,17 @@ export default function App() {
               can never be clipped off the bottom of the map column on
               short viewports. Stays visible regardless of scroll state. */}
           <button
+            onClick={handleTogglePause}
+            className={`px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold whitespace-nowrap border ${
+              isPaused
+                ? 'bg-amber-500 text-white border-amber-400 shadow-md shadow-amber-500/30'
+                : 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500 hover:text-white'
+            }`}
+            title={isPaused ? 'Resume the simulation' : 'Pause the simulation (freezes robots + chart axis)'}
+          >
+            {isPaused ? '▶ Resume' : '⏸ Pause'}
+          </button>
+          <button
             onClick={handleInjectFailure}
             className="px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold bg-red-600/15 text-red-400 border border-red-600/30 hover:bg-red-600 hover:text-white whitespace-nowrap"
             title="Kill a random active robot — surviving robots will reallocate the dead robot's cells (Gong et al. 2024 propagation method)"
@@ -355,18 +391,30 @@ export default function App() {
             )}
           </div>
 
-          <MapCanvas
-            baseMap={baseMap}
-            coverageMap={coverageMap}
-            redundancyMap={redundancyMap}
-            robotPoses={robotPoses}
-            robotStatuses={robotStatuses}
-            robotPaths={robotPaths}
-            robotTrails={robotTrails}
-            numRobots={numRobots}
-            overlays={overlays}
-            sensorRadius={0.5}
-          />
+          <div className="relative">
+            <MapCanvas
+              baseMap={baseMap}
+              coverageMap={coverageMap}
+              redundancyMap={redundancyMap}
+              robotPoses={robotPoses}
+              robotStatuses={robotStatuses}
+              robotPaths={robotPaths}
+              robotTrails={robotTrails}
+              numRobots={numRobots}
+              overlays={overlays}
+              sensorRadius={0.5}
+            />
+            {/* Centred "PAUSED" badge overlay — visible only when paused.
+                Makes the pause state unambiguous in demo recordings. */}
+            {isPaused && (
+              <div className="absolute inset-0 flex items-start justify-center pointer-events-none pt-4">
+                <div className="bg-amber-500/95 text-white px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider shadow-lg shadow-amber-500/40 backdrop-blur-sm flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  PAUSED
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Overlay + controls bar — action buttons live in the header */}
           <ControlBar

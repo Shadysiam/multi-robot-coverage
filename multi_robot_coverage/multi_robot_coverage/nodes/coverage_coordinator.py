@@ -157,6 +157,12 @@ class CoverageCoordinatorNode(Node):
         self._sub_set_speed = self.create_subscription(
             Float64, '/set_speed', self._cb_set_speed, 10
         )
+        # Pause control — when paused, sim-time integration freezes, robots
+        # don't advance, and the chart axis stops. Useful for narrated demos.
+        self._sub_set_paused = self.create_subscription(
+            Bool, '/set_paused', self._cb_set_paused, 10
+        )
+        self._is_paused: bool = False
         # Live failure injection from dashboard
         self._sub_inject_failure = self.create_subscription(
             String, '/inject_failure', self._cb_inject_failure, 10
@@ -411,6 +417,15 @@ class CoverageCoordinatorNode(Node):
         """Update the playback-speed multiplier used for sim-time integration."""
         self._playback_speed = max(0.1, min(10.0, float(msg.data)))
 
+    def _cb_set_paused(self, msg: Bool) -> None:
+        """Toggle the sim-wide pause state."""
+        new_paused = bool(msg.data)
+        if new_paused != self._is_paused:
+            self.get_logger().info(
+                f"Sim {'PAUSED' if new_paused else 'RESUMED'}"
+            )
+        self._is_paused = new_paused
+
     def _cb_set_algorithm(self, msg: String) -> None:
         """Switch algorithm and replan without restarting the container."""
         new_algo = msg.data.strip()
@@ -486,9 +501,10 @@ class CoverageCoordinatorNode(Node):
         Called once per tick.  When the run isn't active (planning,
         failure, idle) we still update _last_tick_wall_s so the next
         active tick measures from "now" rather than from before the gap.
+        Paused state ALSO halts integration — chart axis freezes during pause.
         """
         now_s = self.get_clock().now().nanoseconds * 1e-9
-        if self._last_tick_wall_s is not None and active:
+        if self._last_tick_wall_s is not None and active and not self._is_paused:
             self._sim_elapsed_s += (now_s - self._last_tick_wall_s) * self._playback_speed
         self._last_tick_wall_s = now_s
 
