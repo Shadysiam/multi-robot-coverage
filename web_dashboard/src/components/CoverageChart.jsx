@@ -102,10 +102,13 @@ export default function CoverageChart({ history, algorithm, mapName }) {
     return `M${startX},${baseY} ${livePath.replace(/^M/, 'L')} L${endX},${baseY} Z`
   })()
 
-  // Algorithms whose benchmarks we'll render (skip the live one — it's drawn fresh)
-  const benchAlgos = ALL_ALGOS.filter(
-    a => a !== algorithm && benchmarks[a]
-  )
+  // Algorithms whose benchmarks we'll render.
+  // We INCLUDE the current live algorithm's benchmark curve too — without it,
+  // the live curve has no same-algorithm reference and gets compared against
+  // other algorithms, which is unfair and confusing.  With it, the viewer
+  // sees "live <algo>" vs "benchmark <algo>" side by side (the gap = ROS /
+  // message-bus / scheduling overhead) plus the 3 other algorithms.
+  const benchAlgos = ALL_ALGOS.filter(a => benchmarks[a])
 
   return (
     <div className="stat-card flex flex-col gap-2" ref={wrapRef}>
@@ -249,15 +252,18 @@ export default function CoverageChart({ history, algorithm, mapName }) {
 
       {/* Legend — live curve solid, benchmarks dashed */}
       <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1">
-        {/* Live algorithm */}
+        {/* Live algorithm — solid line */}
         <div className="flex items-center gap-1.5">
           <div className="w-4 h-0.5 rounded" style={{ backgroundColor: cfg.color }} />
           <span className="text-xs font-mono text-slate-300">{cfg.label}</span>
           <span className="text-[10px] text-slate-500 uppercase">live</span>
         </div>
-        {/* Benchmark curves (current map) */}
+        {/* Benchmark curves (current map) — dashed */}
         {showBenchmarks && benchAlgos.map(algo => {
           const style = ALGO_STYLE[algo]
+          // If this benchmark is for the same algorithm as the live curve,
+          // label it as "benchmark" so the side-by-side comparison is clear.
+          const isLiveAlgo = algo === algorithm
           return (
             <div key={algo} className="flex items-center gap-1.5">
               <div
@@ -268,6 +274,9 @@ export default function CoverageChart({ history, algorithm, mapName }) {
                 }}
               />
               <span className="text-xs font-mono text-slate-500">{style.label}</span>
+              {isLiveAlgo && (
+                <span className="text-[10px] text-slate-600 uppercase">benchmark</span>
+              )}
             </div>
           )
         })}

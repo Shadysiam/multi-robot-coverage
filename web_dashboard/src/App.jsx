@@ -62,6 +62,13 @@ export default function App() {
   const [isPaused,   setIsPaused]   = useState(false)
 
   const robotUnsubs = useRef([])
+  // Per-robot debounce timers for the "complete" status.  With frontier,
+  // robots cycle complete → active every ~200-350 ms, which made the
+  // status badge flicker.  We delay propagating "complete" by 400 ms; if
+  // a new status arrives before the timeout fires, the transient complete
+  // is dropped and the badge never shows it.  Real completions (run truly
+  // ended) persist beyond 400 ms and display normally.
+  const statusTimeoutsRef = useRef({})
 
   // ── Toggle overlay ────────────────────────────────────────────────────────
   const handleToggle = useCallback((key) => {
@@ -291,7 +298,25 @@ export default function App() {
       const statusUnsub = subscribe(
         `/robot_${id}/status`,
         'std_msgs/String',
-        (msg) => setRobotStatuses(prev => ({ ...prev, [id]: msg.data }))
+        (msg) => {
+          const newStatus = msg.data
+          // Cancel any pending delayed "complete" for this robot.
+          if (statusTimeoutsRef.current[id]) {
+            clearTimeout(statusTimeoutsRef.current[id])
+            delete statusTimeoutsRef.current[id]
+          }
+          if (newStatus === 'complete') {
+            // Delay the UI update; if a new active/idle arrives within
+            // 400 ms the complete frame is dropped before it ever renders.
+            statusTimeoutsRef.current[id] = setTimeout(() => {
+              setRobotStatuses(prev => ({ ...prev, [id]: 'complete' }))
+              delete statusTimeoutsRef.current[id]
+            }, 400)
+          } else {
+            // Non-complete statuses (active / idle / failed) apply instantly.
+            setRobotStatuses(prev => ({ ...prev, [id]: newStatus }))
+          }
+        }
       )
 
       const pathUnsub = subscribe(
@@ -303,7 +328,12 @@ export default function App() {
       robotUnsubs.current.push(poseUnsub, statusUnsub, pathUnsub)
     }
 
-    return () => robotUnsubs.current.forEach(u => u())
+    return () => {
+      robotUnsubs.current.forEach(u => u())
+      // Clear any pending debounce timers so we don't leak on remount.
+      Object.values(statusTimeoutsRef.current).forEach(clearTimeout)
+      statusTimeoutsRef.current = {}
+    }
   }, [subscribe, numRobots])
 
   return (
