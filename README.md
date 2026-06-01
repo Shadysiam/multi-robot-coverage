@@ -277,6 +277,40 @@ I am the sole author of this project. Specifically:
 
 ---
 
+## Known Limitations & Future Work
+
+Conscious tradeoffs made in v1, plus a roadmap for what I'd build next. Knowing where a design's limits are is more useful than pretending they don't exist.
+
+### 1. Reallocation is nearest-survivor, not workload-balanced
+
+The propagation method from Gong et al. (2024) assigns each cell of a failed robot to the *nearest* surviving robot. This is greedy: if a robot dies on the right side of the map and one survivor happens to be closer to all of the failed robot's cells, that survivor takes the entire load while the other stays idle on its original work. Logged cell counts after one failure run: `{R0: 4 cells, R1: 9 cells}`. Algorithmically correct, operationally lopsided.
+
+**Future fix:** Hungarian assignment over the reallocation step itself (treat the failed robot's cells as a new mini-problem with the remaining survivors as workers), with cell completion time as the cost function. Expected impact: post-failure completion time drops 20–30% on imbalanced maps.
+
+### 2. The "stragglers" gap after failure recovery
+
+`_filter_uncompleted_cells` keeps cells with ≥30% area still uncovered and drops the rest, so surviving robots don't redo work the failed robot mostly finished. Side effect: cells that were 70–95% complete at failure time silently abandon their remaining 5–30%, capping post-failure coverage at ~95–98% rather than 100%.
+
+**Future fix:** add a "stragglers pass" — after the main reallocated plan completes, run a quick exhaustive scan for any cells still showing `_UNCOVERED` and route the nearest free robot to them. Expected impact: post-failure coverage from 95–98% → 100% with a 5–10% wall-time cost.
+
+### 3. Live frontier is compute-bound vs the benchmark
+
+Headless benchmark frontier reaches 90–95% coverage; live coordinator frontier takes 5–8 minutes for the same coverage on the same map. Root cause is *not* algorithm correctness — `find_frontiers` iterates 40,000 cells in pure Python on every replan, and the on-complete trigger fires replans 6–10×/sec. The benchmark uses a 2 s replan interval and runs in a tight loop with no ROS message bus overhead.
+
+**Future fix:** (a) vectorise `find_frontiers` with `scipy.ndimage` morphological operations (~50× speedup expected), (b) throttle the on-complete force-replan to a minimum 0.5 s interval. The live and benchmark frontier should then converge to within ~10 % of each other.
+
+### 4. Custom SLAM map upload (the dashboard accepts only the 3 stock maps)
+
+Right now the map dropdown picks from `simple_room`, `obstacle_room`, `warehouse`. A demonstrable extension is letting users drop their own SLAM-produced `.pgm` + `.yaml` files into the dashboard and run multi-robot coverage on real-world data.
+
+**Future fix:** browser-side PGM parser + `OccupancyGrid` message constructor → publish to `/map` via rosbridge. The coordinator's existing `_cb_map` handler already accepts incoming grids (the path is gated by `_expecting_new_map`, which I'd extend). Roughly half a day's work. Most compelling demo would be running BCD on a SLAM map I captured during my Capstone project (RECLAIM).
+
+### Live vs benchmark gap is a feature, not a limitation
+
+One worth calling out separately because it's a feature, not a limitation: the chart deliberately overlays each algorithm's benchmark curve alongside the live curve. The gap between *live BCD* and *benchmark BCD* on the same map is real engineering data — it's the cost of ROS message-bus latency, scheduler context switches, and per-tick coordinator work, all the things that vanish in a tight Python loop. The benchmark answers "is the algorithm correct?"; the live sim answers "what does deployment cost?". Both numbers matter, and the side-by-side comparison makes the gap measurable, not hidden.
+
+---
+
 ## References
 
 - Choset, H. (2001). *Coverage for robotics — A survey of recent results.* Annals of Mathematics and Artificial Intelligence, 31(1-4), 113–126.
