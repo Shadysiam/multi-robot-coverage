@@ -284,14 +284,14 @@ function drawFrame(canvas, offscreen, props, robotsLerp) {
         }
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
-        ctx.setLineDash([6, 4])
-        // Pass 1: dark halo for contrast on bright backgrounds
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)'
-        ctx.lineWidth   = 3.5
+        ctx.setLineDash([5, 4])
+        // Pass 1: soft dark contrast band — subtle, not a hard halo
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.30)'
+        ctx.lineWidth   = 2.6
         ctx.stroke()
-        // Pass 2: bright coloured dashes on top
-        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.95)`
-        ctx.lineWidth   = 1.8
+        // Pass 2: coloured dashes on top, restrained opacity
+        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.70)`
+        ctx.lineWidth   = 1.3
         ctx.stroke()
         ctx.setLineDash([])
       }
