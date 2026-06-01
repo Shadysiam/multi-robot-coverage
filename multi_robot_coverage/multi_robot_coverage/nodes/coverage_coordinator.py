@@ -870,6 +870,17 @@ class CoverageCoordinatorNode(Node):
                 continue
             world_poses = [self._grid_to_world(*p) for p in path]
             self._send_waypoints(robot_id, world_poses)
+            # CRITICAL: pre-mark the local status as "active" the instant we
+            # dispatch a new path.  The robot_agent's own status update is
+            # asynchronous (50-100 ms over ROS) and arrives AFTER the same
+            # tick's _all_complete() check — without this pre-mark, the
+            # coordinator sees the robot as still "complete" from the
+            # previous segment, all 3 robots register as complete
+            # simultaneously, and the run prematurely transitions to
+            # _State.COMPLETE within ~1 s of starting.  The robot_agent's
+            # next status message will arrive shortly and overwrite this
+            # value with the authoritative "active" anyway.
+            self._robot_statuses[robot_id] = "active"
             dispatched += 1
 
         if dispatched > 0:
