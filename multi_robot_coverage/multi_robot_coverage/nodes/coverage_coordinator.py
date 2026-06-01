@@ -975,8 +975,16 @@ class CoverageCoordinatorNode(Node):
             return
         for failed_id in list(self._failed_robots):
             if failed_id not in self._robot_remaining_cells:
+                self.get_logger().warn(
+                    f"[failure] robot {failed_id} not in remaining_cells — "
+                    f"reallocation skipped (likely already processed)"
+                )
                 continue
             remaining = self._robot_remaining_cells.pop(failed_id, [])
+            self.get_logger().info(
+                f"[failure] robot {failed_id} had {len(remaining)} cells "
+                f"in remaining_cells when it failed"
+            )
             if not remaining:
                 continue
 
@@ -998,6 +1006,15 @@ class CoverageCoordinatorNode(Node):
                 robot_positions=grid_positions,
             )
 
+            # Log how cells were distributed
+            distribution = {
+                rid: len(cells)
+                for rid, cells in self._robot_remaining_cells.items()
+            }
+            self.get_logger().info(
+                f"[failure] post-reallocation cell counts: {distribution}"
+            )
+
             planner = AStar()
             inflation = 0   # grid is pre-inflated in _cb_map
             for robot_id, cells in self._robot_remaining_cells.items():
@@ -1006,7 +1023,16 @@ class CoverageCoordinatorNode(Node):
                 # Filter out cells that are already > 70% covered — saves the
                 # surviving robot from re-driving work it already finished.
                 cells_to_do = self._filter_uncompleted_cells(cells)
+                self.get_logger().info(
+                    f"[failure] robot {robot_id}: "
+                    f"{len(cells)} cells assigned → "
+                    f"{len(cells_to_do)} after filter (≥30% uncovered)"
+                )
                 if not cells_to_do:
+                    self.get_logger().warn(
+                        f"[failure] robot {robot_id} got NO cells_to_do after filter "
+                        f"— it will sit idle until completion"
+                    )
                     continue
                 # Plan from the robot's CURRENT pose so it doesn't teleport.
                 current_pos = grid_positions.get(robot_id)
@@ -1014,12 +1040,18 @@ class CoverageCoordinatorNode(Node):
                     robot_id, cells_to_do, decomposer, planner, inflation,
                     start_pos=current_pos,
                 )
-                if path_poses:
-                    self._send_waypoints(robot_id, path_poses)
-                    self.get_logger().info(
-                        f"Reallocated → robot {robot_id}: "
-                        f"{len(cells_to_do)}/{len(cells)} cells still need work"
+                if not path_poses:
+                    self.get_logger().error(
+                        f"[failure] robot {robot_id}: _build_full_path returned "
+                        f"EMPTY — robot will keep its old path and the {len(cells_to_do)} "
+                        f"reallocated cells will NEVER be covered"
                     )
+                    continue
+                self._send_waypoints(robot_id, path_poses)
+                self.get_logger().info(
+                    f"[failure] robot {robot_id} dispatched: "
+                    f"{len(path_poses)} waypoints for {len(cells_to_do)} cells"
+                )
 
         self._state = _State.RUNNING
 
