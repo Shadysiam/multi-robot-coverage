@@ -60,6 +60,26 @@ export default function App() {
   const [mapName,    setMapName]    = useState('obstacle_room')
   const [algorithm,  setAlgorithm]  = useState('boustrophedon')
   const [isPaused,   setIsPaused]   = useState(false)
+  // Brief "Planning..." overlay shown for ~1s after the user triggers a
+  // new run (algorithm change / map change / reset).  Cleared automatically
+  // by the first /coverage_stats message with pct > 0, or after a 1800 ms
+  // safety timeout in case stats never start flowing.
+  const [isTransitioning, setIsTransitioning] = useState(false)
+  const transitionTimerRef = useRef(null)
+  useEffect(() => {
+    if (!isTransitioning) return
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current)
+    transitionTimerRef.current = setTimeout(() => {
+      setIsTransitioning(false)
+      transitionTimerRef.current = null
+    }, 1800)
+    return () => {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current)
+        transitionTimerRef.current = null
+      }
+    }
+  }, [isTransitioning])
 
   const robotUnsubs = useRef([])
   // Per-robot debounce timers for the "complete" status.  With frontier,
@@ -75,27 +95,45 @@ export default function App() {
     setOverlays(prev => ({ ...prev, [key]: !prev[key] }))
   }, [])
 
-  // ── Algorithm change → publishes to /set_algorithm, coordinator replans ──
-  // Also wipes local visual state immediately — without this, the old
-  // painted coverage cells linger on screen for ~500 ms while the coordinator
-  // re-plans, which makes the switch feel like it froze the sim.
-  const handleAlgorithmChange = useCallback((algo) => {
-    setAlgorithm(algo)
+  // Reset all per-run visual state to a clean baseline.  Shared by the
+  // three "fresh run" handlers (algorithm change, map change, reset sim)
+  // so each one looks identical to the user — no leftover bars / chart
+  // points / coverage paint linger between runs.  We also optimistically
+  // set stats to 0% / 0s so the ring + elapsed display update INSTANTLY
+  // rather than waiting ~500 ms for the first new /coverage_stats
+  // message; at 5x playback the gap let robots paint ~3-4% before the
+  // ring showed any value, which read as a jump from 0 to 4 instead of
+  // a smooth curve from origin.
+  const resetVisualState = useCallback(() => {
     setCoverageHistory([])
     setRobotTrails({})
     setRobotDistances({})
     setRobotPaths({})
     setCoverageMap(null)
     setRedundancyMap(null)
+    setStats(prev => prev
+      ? { ...prev, coverage_percentage: 0, elapsed_time: 0, completed: false }
+      : null
+    )
     prevPosRef.current = {}
     chartStartRef.current = null
+  }, [])
+
+  // ── Algorithm change → publishes to /set_algorithm, coordinator replans ──
+  // Also wipes local visual state immediately — without this, the old
+  // painted coverage cells linger on screen for ~500 ms while the coordinator
+  // re-plans, which makes the switch feel like it froze the sim.
+  const handleAlgorithmChange = useCallback((algo) => {
+    setAlgorithm(algo)
+    resetVisualState()
+    setIsTransitioning(true)
     // If the sim is paused, resume it so the new algorithm actually runs
     if (isPaused) {
       setIsPaused(false)
       publish('/set_paused', 'std_msgs/Bool', { data: false })
     }
     publish('/set_algorithm', 'std_msgs/String', { data: algo })
-  }, [publish, isPaused])
+  }, [publish, isPaused, resetVisualState])
 
   // ── Speed change → publishes to /set_speed, robot agents update live ─────
   const handleSpeed = useCallback((label) => {
@@ -129,38 +167,28 @@ export default function App() {
   // ── Map change → publish to /set_map, map_server loads new file ──────────
   const handleMapChange = useCallback((newMap) => {
     setMapName(newMap)
-    setCoverageHistory([])
-    setRobotTrails({})
-    setRobotDistances({})
-    setRobotPaths({})
-    setCoverageMap(null)
-    setRedundancyMap(null)
+    resetVisualState()
     setBaseMap(null)
-    prevPosRef.current = {}
-    chartStartRef.current = null
+    setRobotPoses({})   // old robot positions are nonsense in a different map
+    setRobotStatuses({})
+    setIsTransitioning(true)
     if (isPaused) {
       setIsPaused(false)
       publish('/set_paused', 'std_msgs/Bool', { data: false })
     }
     publish('/set_map', 'std_msgs/String', { data: newMap })
-  }, [publish, isPaused])
+  }, [publish, isPaused, resetVisualState])
 
   // ── Reset Sim → revive failed robots + replan from scratch ───────────────
   const handleResetSim = useCallback(() => {
-    setCoverageHistory([])
-    setRobotTrails({})
-    setRobotDistances({})
-    setRobotPaths({})
-    setCoverageMap(null)
-    setRedundancyMap(null)
-    prevPosRef.current = {}
-    chartStartRef.current = null
+    resetVisualState()
+    setIsTransitioning(true)
     if (isPaused) {
       setIsPaused(false)
       publish('/set_paused', 'std_msgs/Bool', { data: false })
     }
     publish('/reset_sim', 'std_msgs/String', { data: 'reset' })
-  }, [publish, isPaused])
+  }, [publish, isPaused, resetVisualState])
 
   // ── Static map ─────────────────────────────────────────────────────────────
   useEffect(() => subscribe('/map', 'nav_msgs/OccupancyGrid', setBaseMap), [subscribe])
@@ -178,6 +206,10 @@ export default function App() {
     (msg) => {
       setStats(msg)
       if (msg.total_robots > 0) setNumRobots(msg.total_robots)
+      // Clear the "Planning..." overlay as soon as a real stat with motion arrives.
+      if (isTransitioning && (msg.coverage_percentage ?? 0) > 0.1) {
+        setIsTransitioning(false)
+      }
       // Only initialize the dropdown from the coordinator on first message;
       // after that the user's local selection wins.
       if (msg.algorithm && !algoInitRef.current) {
@@ -441,6 +473,18 @@ export default function App() {
                 <div className="bg-amber-500/95 text-white px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider shadow-lg shadow-amber-500/40 backdrop-blur-sm flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
                   PAUSED
+                </div>
+              </div>
+            )}
+            {/* "Planning…" overlay for the brief window between user-triggered
+                run start (reset / algo change / map change) and first stats
+                flowing. Bridges the visual gap so the user sees clear feedback
+                instead of a blank canvas with no indication anything's happening. */}
+            {isTransitioning && !isPaused && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-surface-900/40 backdrop-blur-[2px]">
+                <div className="bg-blue-600/95 text-white px-5 py-2 rounded-full text-xs font-mono font-bold tracking-wider shadow-lg shadow-blue-600/40 flex items-center gap-2.5">
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  PLANNING…
                 </div>
               </div>
             )}
