@@ -303,6 +303,13 @@ class CoverageCoordinatorNode(Node):
         # covered.  The +1 ensures adjacent lawnmower strips overlap by 1 cell
         # so no thin gaps survive between them.
         r, c = self._world_to_grid(x, y)
+        # For frontier, reveal continuously at 20 Hz (pose update rate)
+        # instead of just every 0.5 s coordinator tick.  At 5x playback the
+        # robot moves 2.5 m between ticks — far past sensor_radius (0.4 m) —
+        # leaving unrevealed strips behind it.  Per-pose reveal closes the
+        # gap so the known map tracks motion at any speed.
+        if self._algorithm == "frontier" and self._frontier_explorer is not None:
+            self._frontier_explorer.reveal([(r, c)])
         rad = max(1, int(self._radius_m / self._resolution) + 1)
         rows, cols = self._grid.shape
         r_min = max(0, r - rad)
@@ -569,6 +576,10 @@ class CoverageCoordinatorNode(Node):
 
     def _plan_frontier(self) -> None:
         assert self._grid is not None
+        # Version banner — if this doesn't show up in docker logs, the
+        # container is running stale code (volume cache).  v4 = centroid
+        # snap-to-cluster + per-pose reveal + on-complete dispatch + log.
+        self.get_logger().info("[frontier v4] starting plan_frontier()")
         # Sensor radius governs how much area each robot "reveals" per step.
         # If we make it too large (e.g. 2.5 m), the robot doesn't need to
         # physically traverse cells to consider them explored — coverage

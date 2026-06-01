@@ -160,9 +160,12 @@ export default function App() {
       //   - Subsequent completion messages → ignore (the coordinator keeps
       //     publishing heartbeats with growing elapsed_time but the mission
       //     is over — the graph used to slide right indefinitely).
+      // t == 0 IS allowed now — anchors the chart curve at the origin so
+      // the live curve starts at (0, 0) instead of jumping in mid-run after
+      // a 1-2 s planning delay.
       const t   = msg.elapsed_time ?? 0
       const pct = msg.coverage_percentage ?? 0
-      if (t > 0) {
+      if (t >= 0) {
         if (chartStartRef.current === null) chartStartRef.current = t
         setCoverageHistory(prev => {
           const last = prev.at(-1)

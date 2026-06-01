@@ -144,9 +144,19 @@ class FrontierExplorer:
                         queue.append(nbr)
 
             if len(cluster) >= min_cluster_size:
-                r_c = int(round(sum(p[0] for p in cluster) / len(cluster)))
-                c_c = int(round(sum(p[1] for p in cluster) / len(cluster)))
-                centroids.append((r_c, c_c))
+                # CRITICAL: pick the cluster member closest to the arithmetic
+                # mean, NOT the mean itself.  When a cluster curves around an
+                # obstacle, the arithmetic mean can land in an obstacle cell —
+                # A* then refuses to plan a path to it and the robot stays
+                # idle.  Picking the closest actual cluster cell guarantees
+                # the goal is a free, reachable frontier cell.
+                r_mean = sum(p[0] for p in cluster) / len(cluster)
+                c_mean = sum(p[1] for p in cluster) / len(cluster)
+                representative = min(
+                    cluster,
+                    key=lambda p: (p[0] - r_mean) ** 2 + (p[1] - c_mean) ** 2,
+                )
+                centroids.append(representative)
 
         return centroids
 
