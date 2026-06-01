@@ -37,15 +37,25 @@
 
 ## Demo
 
-| Live dashboard, BCD running on obstacle map | Failure injection + mid-mission reallocation |
-|:---:|:---:|
-| ![BCD running](docs/screenshots/bcd_running.png) | ![Failure injection](docs/screenshots/failure_injection.png) |
+### Live dashboard — BCD running on obstacle_room
 
-| All 4 algorithms compared in one chart | Random walk fails on warehouse map |
-|:---:|:---:|
-| ![Algorithm comparison](docs/screenshots/algorithm_comparison.png) | ![Warehouse random walk](docs/screenshots/warehouse_random_walk.png) |
+![BCD live coverage with all 4 algorithms compared on the chart](docs/screenshots/bcd_running.png)
 
-🎬 **[60-second demo video on YouTube](https://youtu.be/REPLACE_WITH_REAL_LINK)** — BCD running, failure injection, reallocation, completion.
+Three robots cooperatively sweeping the obstacle_room map under BCD. The chart on the right overlays each algorithm's benchmark curve as dashed reference lines — live BCD (solid blue) vs benchmark BCD, Frontier, Simple Lawnmower, and Random Walk on the same time axis.
+
+### Key moments
+
+| Mission complete — 100 % coverage | Failure injection + mid-mission reallocation |
+|:---:|:---:|
+| ![BCD complete with green coverage ring at 100%](docs/screenshots/bcd_complete.png) | ![One robot failed, survivors reallocate cells](docs/screenshots/failure_injection.png) |
+| BCD reaches 100 % coverage on every map (vs ~95 % for simple lawnmower, ~93 % for frontier). The green ring and Mission Complete badge mark the moment all free cells have been visited. | One robot killed mid-mission. Surviving robots inherit the failed robot's remaining cells via the propagation method (Gong et al. 2024), sorted by proximity to the failure point. |
+| **All 4 algorithms compared in one chart** | **Random walk on warehouse — visible failure mode** |
+| ![Coverage Over Time chart with 4 curves](docs/screenshots/algorithm_comparison.png) | ![Random walk chaotic trails on warehouse map](docs/screenshots/warehouse_random_walk.png) |
+| The Coverage Over Time chart shows all four algorithms in one view. BCD eventually catches every cell; frontier is fastest to ~90 % but never reaches 100 %; random walk collapses on warehouse. | Random walk on the warehouse map. Chaotic crossing trails, low coverage even after a full benchmark run — the baseline that motivates the cell-decomposition approach. |
+
+### Demo video
+
+🎬 **[60-second demo video on YouTube](https://youtu.be/REPLACE_WITH_REAL_LINK)** — *(coming soon)* BCD running, mid-mission failure injection, propagation-based reallocation, completion, then a random-walk comparison.
 
 ---
 
