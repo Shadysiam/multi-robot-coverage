@@ -3,7 +3,14 @@ import { cellColor, robotColor } from '../utils/colors'
 
 const CANVAS_SIZE  = 560
 const TRAIL_LENGTH = 300
-const LERP_FACTOR  = 0.18
+// Lerp weight per render frame. Was 0.18 (tuned at 1x playback); at 5x
+// playback the robot moves 5x further per pose update (0.25 m instead
+// of 0.05 m), so the same 3 frames between updates can't catch up in
+// time — robots visually trail behind their real position and look
+// choppy. 0.34 is the sweet spot empirically: smooth at 1x and 2x,
+// substantially less lag at 5x. Going higher (0.5+) makes 1x feel
+// twitchy.
+const LERP_FACTOR  = 0.34
 
 /**
  * Live coverage map renderer.
