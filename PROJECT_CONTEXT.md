@@ -590,6 +590,24 @@ The headless benchmark and the live coordinator implement frontier exploration w
 - 47 unit tests still pass.
 - Headless benchmark for `frontier` produces identical numbers: simple_room 90.4 %, obstacle_room 93.2 %, warehouse 95.5 % (the algorithm class itself wasn't touched, only how the coordinator drives it).
 
+### 14.7 Coverage chart reported wall-clock time, making 5× runs incomparable to benchmark
+
+**Symptom**
+With playback speed at 5×, the live coverage curve hit 100 % around the 20 s mark of the chart axis — while the benchmark overlay curves for the same map terminated around 90–125 s. The two scales were silently inconsistent, making the live curve look impossibly fast.
+
+**Root cause**
+`_publish_stats` reported `elapsed_time = wall_clock_now - start_time`. At 5× playback, robots cover the map in 1/5 of wall time, but the chart was plotted against wall time, not the equivalent real-world sim time. The benchmark, by contrast, advances `dt = 0.1 s` per loop iteration and reports the integrated sim time — those are the seconds *the algorithm would have taken in physical reality*.
+
+**Fix** ([`coverage_coordinator.py`](multi_robot_coverage/multi_robot_coverage/nodes/coverage_coordinator.py))
+
+- Subscribed to `/set_speed` to track `self._playback_speed` (the dashboard already publishes it).
+- New `_accumulate_sim_time` integrates `Σ wall_dt × playback_speed` per main-tick call, so the integrator handles mid-run speed changes correctly (no retroactive recompute).
+- `_publish_stats` now reports `self._sim_elapsed_s` as `elapsed_time`.
+- `_reset_and_replan` and `_complete_elapsed` capture/reset the integrator at the right boundaries.
+- Failure-injection timer also switched from wall-clock to sim-time so `failure_time:=30.0` fires at the same algorithmic point regardless of playback speed.
+
+The dashboard displays `formatTime(elapsed)` straight from the message — no client-side change needed. The live curve and benchmark overlay are now on the same axis.
+
 ### Files changed in this bug-hunt pass
 
 ```

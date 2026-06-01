@@ -53,7 +53,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid, Path
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Float64, String
 
 from multi_robot_coverage_msgs.msg import AlgorithmComparison, CoverageStats
 
@@ -149,6 +149,14 @@ class CoverageCoordinatorNode(Node):
         self._sub_set_algorithm = self.create_subscription(
             String, '/set_algorithm', self._cb_set_algorithm, 10
         )
+        # Track the playback speed multiplier from the dashboard so that
+        # elapsed_time reports SIM seconds (not wall-clock).  Without this,
+        # a 5x-speed run shows "100% at 20 s" on the chart while the
+        # benchmark overlay curves expect sim seconds — the two scales
+        # become incomparable and the live curve looks suspiciously fast.
+        self._sub_set_speed = self.create_subscription(
+            Float64, '/set_speed', self._cb_set_speed, 10
+        )
         # Live failure injection from dashboard
         self._sub_inject_failure = self.create_subscription(
             String, '/inject_failure', self._cb_inject_failure, 10
@@ -203,6 +211,12 @@ class CoverageCoordinatorNode(Node):
         # Elapsed time frozen at the instant we entered COMPLETE — prevents
         # the dashboard chart from sliding right after the mission ended.
         self._complete_elapsed: Optional[float] = None
+        # Integrated sim-time: cumulative ∫ wall_dt × playback_speed.
+        # Reported as elapsed_time so the chart is on the same axis as the
+        # benchmark curves regardless of the speed multiplier in use.
+        self._sim_elapsed_s: float = 0.0
+        self._last_tick_wall_s: Optional[float] = None
+        self._playback_speed: float = 1.0
         self._total_free: int = 0
 
         # Frontier-specific state
@@ -374,6 +388,10 @@ class CoverageCoordinatorNode(Node):
         b.data = True
         self._pub_fail[target].publish(b)
 
+    def _cb_set_speed(self, msg: Float64) -> None:
+        """Update the playback-speed multiplier used for sim-time integration."""
+        self._playback_speed = max(0.1, min(10.0, float(msg.data)))
+
     def _cb_set_algorithm(self, msg: String) -> None:
         """Switch algorithm and replan without restarting the container."""
         new_algo = msg.data.strip()
@@ -402,6 +420,8 @@ class CoverageCoordinatorNode(Node):
         self._failure_triggered = False
         self._start_time = None
         self._complete_elapsed = None
+        self._sim_elapsed_s = 0.0
+        self._last_tick_wall_s = None
         self._robot_statuses = {i: "idle" for i in range(self._n)}
         self._frontier_explorer = None
         self._frontier_last_replan_s = 0.0
@@ -423,6 +443,10 @@ class CoverageCoordinatorNode(Node):
     # ------------------------------------------------------------------
 
     def _tick(self) -> None:
+        # Integrate sim-time only while a run is actively in progress, so
+        # planning/idle/completed states don't accumulate phantom time.
+        self._accumulate_sim_time(active=self._state == _State.RUNNING)
+
         if self._state == _State.PLANNING:
             self._run_planning()
         elif self._state == _State.RUNNING:
@@ -436,6 +460,18 @@ class CoverageCoordinatorNode(Node):
         if self._state in (_State.RUNNING, _State.COMPLETE):
             self._publish_coverage_map()
             self._publish_stats()
+
+    def _accumulate_sim_time(self, active: bool) -> None:
+        """Add wall_dt × playback_speed to the integrated sim-time counter.
+
+        Called once per tick.  When the run isn't active (planning,
+        failure, idle) we still update _last_tick_wall_s so the next
+        active tick measures from "now" rather than from before the gap.
+        """
+        now_s = self.get_clock().now().nanoseconds * 1e-9
+        if self._last_tick_wall_s is not None and active:
+            self._sim_elapsed_s += (now_s - self._last_tick_wall_s) * self._playback_speed
+        self._last_tick_wall_s = now_s
 
     # ------------------------------------------------------------------
     # Planning
@@ -801,15 +837,14 @@ class CoverageCoordinatorNode(Node):
     # ------------------------------------------------------------------
 
     def _tick_running(self) -> None:
-        # Check for failure simulation.
+        # Check for failure simulation.  Uses sim-time so the failure fires
+        # at the same algorithmic point regardless of playback speed.
         if (
             self._fail_sim
             and not self._failure_triggered
-            and self._start_time is not None
+            and self._sim_elapsed_s >= self._fail_time
         ):
-            elapsed = self.get_clock().now().nanoseconds * 1e-9 - self._start_time
-            if elapsed >= self._fail_time:
-                self._trigger_failure()
+            self._trigger_failure()
 
         # Frontier: reassign whenever a robot completes its current goal.
         if self._algorithm == "frontier":
@@ -819,10 +854,8 @@ class CoverageCoordinatorNode(Node):
         if self._all_complete():
             self._state = _State.COMPLETE
             # Freeze elapsed time at the moment of completion
-            if self._start_time is not None and self._complete_elapsed is None:
-                self._complete_elapsed = (
-                    self.get_clock().now().nanoseconds * 1e-9 - self._start_time
-                )
+            if self._complete_elapsed is None:
+                self._complete_elapsed = self._sim_elapsed_s
             self.get_logger().info("Coverage COMPLETE!")
 
     def _tick_running_with_failure_check(self) -> None:
@@ -1001,14 +1034,13 @@ class CoverageCoordinatorNode(Node):
         )
         pct = 100.0 * covered_cells / self._total_free if self._total_free else 0.0
 
-        # Elapsed time: freeze once the mission completes so downstream
-        # consumers (chart, ETA, etc.) don't see the clock keep advancing.
+        # Elapsed time = integrated sim-time (∫ wall_dt × playback_speed).
+        # Frozen at the moment of completion so the chart axis stops
+        # advancing after the ring turns green.
         if self._complete_elapsed is not None:
             elapsed = self._complete_elapsed
-        elif self._start_time is not None:
-            elapsed = self.get_clock().now().nanoseconds * 1e-9 - self._start_time
         else:
-            elapsed = 0.0
+            elapsed = self._sim_elapsed_s
 
         active = sum(
             1

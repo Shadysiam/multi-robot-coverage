@@ -95,25 +95,29 @@ export default function ControlBar({
         <Select value={mapName} onChange={onMapChange} options={MAPS} />
       </Section>
 
-      <div className="flex-1" />
-
-      {/* Inject Failure */}
-      <button
-        onClick={onInjectFailure}
-        className="px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold bg-red-600/15 text-red-400 border border-red-600/30 hover:bg-red-600 hover:text-white"
-        title="Kill a random active robot — surviving robots will reallocate the dead robot's cells (Gong et al. 2024 propagation method)"
-      >
-        ⚠ Inject Failure
-      </button>
-
-      {/* Reset Sim */}
-      <button
-        onClick={onResetSim}
-        className="px-3 py-1.5 rounded-md text-[11px] font-mono font-semibold bg-blue-600/15 text-blue-400 border border-blue-600/30 hover:bg-blue-600 hover:text-white"
-        title="Reset simulation: revive failed robots, clear coverage, replan from scratch"
-      >
-        ↺ Reset Sim
-      </button>
+      {/* Action buttons grouped so they never wrap separately and stay
+          visible even when the control bar is squeezed. Shorter labels
+          ("Fail" / "Reset") keep both fully visible at typical sidebar
+          widths — the previous "Inject Failure" + "Reset Sim" combo
+          pushed Reset off the end of the row. */}
+      <Section label="Actions">
+        <div className="flex gap-1.5">
+          <button
+            onClick={onInjectFailure}
+            className="px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold bg-red-600/15 text-red-400 border border-red-600/30 hover:bg-red-600 hover:text-white whitespace-nowrap"
+            title="Kill a random active robot — surviving robots will reallocate the dead robot's cells (Gong et al. 2024 propagation method)"
+          >
+            ⚠ Fail
+          </button>
+          <button
+            onClick={onResetSim}
+            className="px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold bg-blue-600/15 text-blue-400 border border-blue-600/30 hover:bg-blue-600 hover:text-white whitespace-nowrap"
+            title="Reset simulation: revive failed robots, clear coverage, replan from scratch"
+          >
+            ↺ Reset
+          </button>
+        </div>
+      </Section>
     </div>
   )
 }
