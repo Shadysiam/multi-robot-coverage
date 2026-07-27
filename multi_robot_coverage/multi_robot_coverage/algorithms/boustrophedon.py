@@ -472,8 +472,20 @@ class BoustrophedonDecomposer:
         # inherited cells SEPARATELY per robot (not straight onto its existing
         # route) so we can order just those below.
         inherited: dict[int, list[CoverageCell]] = {rid: [] for rid in active_ids}
-        absorbed = {rid: 0 for rid in active_ids}
-        WORKLOAD_WEIGHT = 0.5   # distance-cells of penalty per unit cell area
+        n_absorbed = {rid: 0 for rid in active_ids}
+        # Load-balance TIEBREAK, in grid-distance units, applied per cell
+        # ALREADY absorbed.  Distance to the cell is the primary driver, so
+        # orphaned cells go to the nearest survivor and no robot treks across
+        # the map; this term only tips the choice toward a less-loaded robot
+        # when two are within ~40 grid cells of similar distance.
+        #
+        # This replaced an area-weighted penalty (0.5 * cell_area).  Cell areas
+        # run into the hundreds-to-thousands of grid cells, which dwarfed every
+        # distance term (max ~280), so after a robot took a single cell every
+        # later cell was shoved onto a different robot purely to balance load
+        # -- even one on the far side of the map.  That produced the "task
+        # given to the wrong robot" and "robot travels half the map" symptoms.
+        LOAD_TIEBREAK = 40.0
 
         for cell in remaining_sorted:
             cr, cc = cell.centroid
@@ -482,10 +494,10 @@ class BoustrophedonDecomposer:
                 key=lambda rid: math.hypot(
                     robot_positions.get(rid, (0, 0))[0] - cr,
                     robot_positions.get(rid, (0, 0))[1] - cc,
-                ) + WORKLOAD_WEIGHT * absorbed[rid],
+                ) + LOAD_TIEBREAK * n_absorbed[rid],
             )
             inherited[best_id].append(cell)
-            absorbed[best_id] += cell.area
+            n_absorbed[best_id] += 1
 
         # For each survivor: order ONLY its inherited cells nearest-first from
         # its current position, then PREPEND them to its existing route.
