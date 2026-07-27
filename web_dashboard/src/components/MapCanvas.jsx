@@ -3,6 +3,11 @@ import { cellColor, robotColor } from '../utils/colors'
 
 const CANVAS_SIZE  = 560
 const TRAIL_LENGTH = 300
+// Cap the render loop to 30 fps. Matches typical screen-recorder capture
+// rate, halves render CPU vs 60 fps, and frees cycles for the recorder so
+// captured video stays smooth. Bump to 60 only if you have CPU to spare and
+// aren't recording.
+const TARGET_FPS   = 30
 // Lerp weight per render frame. Was 0.18 (tuned at 1x playback); at 5x
 // playback the robot moves 5x further per pose update (0.25 m instead
 // of 0.05 m), so the same 3 frames between updates can't catch up in
@@ -76,10 +81,21 @@ export default function MapCanvas({
     renderMapToCache(offscreenRef.current, map, redundancyMap, overlays)
   }, [coverageMap, baseMap, redundancyMap, overlays?.heatmap, overlays?.grid])
 
-  // Single 60 fps draw loop
+  // Draw loop, capped to TARGET_FPS.  We deliberately do NOT render at the
+  // display's native 60 fps: screen recorders capture at 30 fps, so the
+  // extra 30 browser frames/sec are pure wasted CPU that starves the
+  // recorder and makes captured video choppy on machines without a spare
+  // core to burn.  requestAnimationFrame still fires at 60; we early-return
+  // on the frames that arrive too soon, which is nearly free.
   useEffect(() => {
     let raf
-    const tick = () => {
+    let lastDraw = 0
+    const frameMs = 1000 / TARGET_FPS
+    const tick = (now) => {
+      raf = requestAnimationFrame(tick)
+      if (now - lastDraw < frameMs) return   // too soon, skip this frame
+      lastDraw = now
+
       // Lerp current → target
       for (const id in targetsRef.current) {
         const t = targetsRef.current[id]
@@ -93,7 +109,6 @@ export default function MapCanvas({
         c.yaw += dy * LERP_FACTOR
       }
       drawFrame(canvasRef.current, offscreenRef.current, propsRef.current, currentRef.current)
-      raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
