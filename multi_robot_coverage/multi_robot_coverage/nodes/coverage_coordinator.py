@@ -971,6 +971,7 @@ class CoverageCoordinatorNode(Node):
     def _handle_failure(self) -> None:
         if self._grid is None:
             return
+        t_realloc_start = self.get_clock().now().nanoseconds * 1e-9
         for failed_id in list(self._failed_robots):
             if failed_id not in self._robot_remaining_cells:
                 self.get_logger().warn(
@@ -1051,6 +1052,13 @@ class CoverageCoordinatorNode(Node):
                     f"{len(path_poses)} waypoints for {len(cells_to_do)} cells"
                 )
 
+        t_realloc_ms = (
+            self.get_clock().now().nanoseconds * 1e-9 - t_realloc_start
+        ) * 1000.0
+        self.get_logger().info(
+            f"[failure] reallocation + replanning took {t_realloc_ms:.0f} ms "
+            f"(synchronous — this is the click-to-move lag)"
+        )
         self._state = _State.RUNNING
 
     def _filter_uncompleted_cells(

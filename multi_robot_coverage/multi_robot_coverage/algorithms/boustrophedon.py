@@ -468,7 +468,10 @@ class BoustrophedonDecomposer:
         # where cost = distance-to-cell + a workload-balance penalty.  Pure
         # nearest-robot assignment could dump every orphaned cell on whichever
         # robot happened to be closest to the failure site, overloading it
-        # while others sat idle.  The penalty spreads the load.
+        # while others sat idle.  The penalty spreads the load.  We collect the
+        # inherited cells SEPARATELY per robot (not straight onto its existing
+        # route) so we can order just those below.
+        inherited: dict[int, list[CoverageCell]] = {rid: [] for rid in active_ids}
         absorbed = {rid: 0 for rid in active_ids}
         WORKLOAD_WEIGHT = 0.5   # distance-cells of penalty per unit cell area
 
@@ -481,23 +484,25 @@ class BoustrophedonDecomposer:
                     robot_positions.get(rid, (0, 0))[1] - cc,
                 ) + WORKLOAD_WEIGHT * absorbed[rid],
             )
-            active_assignments[best_id].append(cell)
+            inherited[best_id].append(cell)
             absorbed[best_id] += cell.area
 
-        # CRITICAL: re-order each active robot's combined cell list (its own
-        # remaining cells plus the cells it just inherited) by nearest-neighbour
-        # from its CURRENT position.  Without this step the inherited cells were
-        # simply appended to the end of the sweep order, so a surviving robot
-        # finished all of its own cells first and only THEN trekked across the
-        # map to the inherited region -- leaving that region visibly uncovered
-        # for a long time (the "robot missed a huge portion" symptom).  Weaving
-        # the inherited cells into a proximity-ordered route from where the
-        # robot actually is closes the gap.
+        # For each survivor: order ONLY its inherited cells nearest-first from
+        # its current position, then PREPEND them to its existing route.
+        #
+        # Why prepend rather than re-sort the whole list: re-sorting a robot's
+        # own cells makes it double back through areas it already partially
+        # covered, re-sweeping them and spiking coverage redundancy (the
+        # "goes over cells it already did" symptom).  Prepending the ordered
+        # inherited cells means the survivor heads to cover the failed robot's
+        # region promptly, then resumes its own remaining cells in their
+        # original order -- covering the gap without re-sweeping its own work.
         for rid in active_ids:
+            if not inherited[rid]:
+                continue
             pos = robot_positions.get(rid, (0, 0))
-            active_assignments[rid] = self._order_cells_nearest_neighbour(
-                active_assignments[rid], pos
-            )
+            ordered_new = self._order_cells_nearest_neighbour(inherited[rid], pos)
+            active_assignments[rid] = ordered_new + active_assignments[rid]
 
         # Remove failed robot entry.
         active_assignments.pop(failed_robot_id, None)
