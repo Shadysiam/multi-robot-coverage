@@ -69,7 +69,7 @@ class SimpleBoustrophedonPlanner:
 
         for rid in range(num_robots):
             r_start = rid * band
-            r_end   = (rid + 1) * band if rid < num_robots - 1 else rows
+            r_end = (rid + 1) * band if rid < num_robots - 1 else rows
             path: list[tuple[int, int]] = []
             strip_idx = 0
 

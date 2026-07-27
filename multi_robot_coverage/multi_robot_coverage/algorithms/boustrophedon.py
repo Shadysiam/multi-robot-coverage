@@ -359,7 +359,7 @@ class BoustrophedonDecomposer:
             return BoustrophedonDecomposer._assign_greedy(cells, n_robots)
 
         ALPHA = 1.0     # distance weight
-        BETA  = 50.0    # workload-balance weight (per robot cell)
+        BETA = 50.0     # workload-balance weight (per robot cell)
 
         assignment: dict[int, list[CoverageCell]] = {
             i: [] for i in range(n_robots)

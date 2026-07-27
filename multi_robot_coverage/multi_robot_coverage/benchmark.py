@@ -33,11 +33,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -260,7 +258,8 @@ def _build_bcd_path_for_robot(
             path.extend(transit[1:] if path else transit)
         # Dense lawnmower sweep
         dense_sweep = _densify_path(grid, sweep, planner)
-        path.extend(dense_sweep[1:] if path and dense_sweep and path[-1] == dense_sweep[0] else dense_sweep)
+        skip_first = path and dense_sweep and path[-1] == dense_sweep[0]
+        path.extend(dense_sweep[1:] if skip_first else dense_sweep)
         prev_grid = sweep[-1]
     return path
 

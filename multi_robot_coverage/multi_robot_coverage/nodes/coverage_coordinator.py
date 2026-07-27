@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import math
 import random
-import time
 from enum import Enum, auto
 from typing import Optional
 
@@ -577,7 +576,6 @@ class CoverageCoordinatorNode(Node):
         """Comparison: naive lawnmower with no cellular decomposition."""
         assert self._grid is not None
         cw = max(1, int(self._cov_width_m / self._resolution))
-        inflation = 0   # grid is pre-inflated in _cb_map
         planner = SimpleBoustrophedonPlanner(coverage_width=cw)
         grid_paths = planner.generate_paths(self._grid, self._n)
         astar = AStar()
@@ -1118,7 +1116,7 @@ class CoverageCoordinatorNode(Node):
         if self._redundancy is not None:
             rmsg = OccupancyGrid()
             rmsg.header = msg.header
-            rmsg.info   = msg.info
+            rmsg.info = msg.info
             # Mask obstacles → 255 (which becomes -1 when reinterpreted as int8)
             r_internal = np.where(
                 self._grid >= 50, 255, self._redundancy

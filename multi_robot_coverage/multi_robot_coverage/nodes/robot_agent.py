@@ -30,7 +30,6 @@ ROS2 Parameters
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import rclpy
 from rclpy.node import Node

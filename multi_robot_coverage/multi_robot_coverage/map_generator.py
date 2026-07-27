@@ -13,8 +13,6 @@ Maps are written to the ``maps/`` directory relative to this file's location.
 
 from __future__ import annotations
 
-import os
-import struct
 from pathlib import Path
 
 import numpy as np

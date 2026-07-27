@@ -14,8 +14,6 @@ ROS2 Parameters
 
 from __future__ import annotations
 
-import os
-import struct
 from pathlib import Path
 from typing import Optional
 
@@ -25,8 +23,6 @@ import yaml
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from nav_msgs.msg import OccupancyGrid
-from std_msgs.msg import Header
-from builtin_interfaces.msg import Time
 
 
 class MapServerNode(Node):

@@ -26,14 +26,13 @@ Marker layout
 
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
-from geometry_msgs.msg import Point, PoseStamped, Vector3
+from geometry_msgs.msg import Point, PoseStamped
 from std_msgs.msg import ColorRGBA, String
 from visualization_msgs.msg import Marker, MarkerArray
 
