@@ -464,17 +464,40 @@ class BoustrophedonDecomposer:
 
         remaining_sorted = sorted(remaining_cells, key=dist_to_failed)
 
-        # Assign each remaining cell to the nearest active robot.
+        # Assign each orphaned cell to the active robot with the lowest cost,
+        # where cost = distance-to-cell + a workload-balance penalty.  Pure
+        # nearest-robot assignment could dump every orphaned cell on whichever
+        # robot happened to be closest to the failure site, overloading it
+        # while others sat idle.  The penalty spreads the load.
+        absorbed = {rid: 0 for rid in active_ids}
+        WORKLOAD_WEIGHT = 0.5   # distance-cells of penalty per unit cell area
+
         for cell in remaining_sorted:
             cr, cc = cell.centroid
-            nearest_id = min(
+            best_id = min(
                 active_ids,
                 key=lambda rid: math.hypot(
                     robot_positions.get(rid, (0, 0))[0] - cr,
                     robot_positions.get(rid, (0, 0))[1] - cc,
-                ),
+                ) + WORKLOAD_WEIGHT * absorbed[rid],
             )
-            active_assignments[nearest_id].append(cell)
+            active_assignments[best_id].append(cell)
+            absorbed[best_id] += cell.area
+
+        # CRITICAL: re-order each active robot's combined cell list (its own
+        # remaining cells plus the cells it just inherited) by nearest-neighbour
+        # from its CURRENT position.  Without this step the inherited cells were
+        # simply appended to the end of the sweep order, so a surviving robot
+        # finished all of its own cells first and only THEN trekked across the
+        # map to the inherited region -- leaving that region visibly uncovered
+        # for a long time (the "robot missed a huge portion" symptom).  Weaving
+        # the inherited cells into a proximity-ordered route from where the
+        # robot actually is closes the gap.
+        for rid in active_ids:
+            pos = robot_positions.get(rid, (0, 0))
+            active_assignments[rid] = self._order_cells_nearest_neighbour(
+                active_assignments[rid], pos
+            )
 
         # Remove failed robot entry.
         active_assignments.pop(failed_robot_id, None)
